@@ -37,8 +37,8 @@ class Hidden:
         self.mse_loss = nn.MSELoss().to(device)
 
         # Defined the labels used for training the discriminator/adversarial loss
-        self.cover_label = 1
-        self.encoded_label = 0
+        self.cover_label = 1.0
+        self.encoded_label = 0.0
 
         self.tb_logger = tb_logger
         if tb_logger is not None:
