@@ -49,4 +49,4 @@ class AdvVectorDecoder(nn.Module):
             h = blk(h)
 
         logits = self.out_fc(self.out_ln(h))
-        return torch.sigmoid(logits)           # (N, L)
+        return logits          # (N, L)

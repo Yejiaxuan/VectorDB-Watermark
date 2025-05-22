@@ -34,15 +34,19 @@ class GaussianNoise(nn.Module):
 # 2. 量化  x ← round(x·2^k)/2^k
 # ─────────────────────────────
 class Quantize(nn.Module):
-    def __init__(self, n_bits: int = 8):
-        """
-        n_bits = 16  模拟 FP16;  8 ≈ INT8
-        """
+    def __init__(self, n_bits=8):
         super().__init__()
-        self.scale = 2 ** n_bits
+        self.n_bits = n_bits
+        self.scale = 2 ** n_bits - 1
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.round(x * self.scale) / self.scale
+    def forward(self, x):
+        # 将 [-1,1] → [0,1]，量化，再还原
+        x_scaled = (x + 1) / 2
+        x_q = torch.round(x_scaled * self.scale) / self.scale
+        x_q = x_q * 2 - 1
+        # Straight-Through Estimator
+        return x + (x_q - x).detach()
+
 
 
 # ─────────────────────────────
