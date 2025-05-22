@@ -44,3 +44,4 @@ saved-runs/
 /datasets/
 /train/
 /val/
+./nq_qa_combined_384d.npy

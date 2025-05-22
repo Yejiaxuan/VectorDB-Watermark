@@ -7,6 +7,10 @@ from noise_layers.dropout import Dropout
 from noise_layers.resize import Resize
 from noise_layers.quantization import Quantization
 from noise_layers.jpeg_compression import JpegCompression
+from noise_layers.vnoise_layers import (
+    GaussianNoise, Quantize as VQuantize, DimMask, RandProj
+)
+
 
 
 def parse_pair(match_groups):
@@ -43,6 +47,27 @@ def parse_resize(resize_command):
     min_ratio = float(ratios[0])
     max_ratio = float(ratios[1])
     return Resize((min_ratio, max_ratio))
+
+# ─── vector-domain helpers ─────────────────────────
+def parse_gauss(cmd):
+    # gauss(0.01)
+    sigma = float(re.match(r'gauss\((\d+\.*\d*)\)', cmd).group(1))
+    return GaussianNoise(sigma)
+
+def parse_quantize(cmd):
+    # quantize(8)
+    n_bits = int(re.match(r'quantize\((\d+)\)', cmd).group(1))
+    return VQuantize(n_bits)
+
+def parse_mask(cmd):
+    # mask(0.9)
+    keep = float(re.match(r'mask\((\d+\.*\d*)\)', cmd).group(1))
+    return DimMask(keep)
+
+def parse_proj(cmd):
+    # proj()
+    return RandProj()
+# ──────────────────────────────────────────────────
 
 
 class NoiseArgParser(argparse.Action):
@@ -97,8 +122,16 @@ class NoiseArgParser(argparse.Action):
                 layers.append(parse_resize(command))
             elif command[:len('jpeg')] == 'jpeg':
                 layers.append('JpegPlaceholder')
-            elif command[:len('quant')] == 'quant':
-                layers.append('QuantizationPlaceholder')
+            #elif command[:len('quant')] == 'quant':
+            #    layers.append('QuantizationPlaceholder')
+            elif command[:len('gauss')] == 'gauss':
+                layers.append(parse_gauss(command))
+            elif command[:len('quantize')] == 'quantize':
+                layers.append(parse_quantize(command))
+            elif command[:len('mask')] == 'mask':
+                layers.append(parse_mask(command))
+            elif command[:len('proj')] == 'proj':
+                layers.append(parse_proj(command))
             elif command[:len('identity')] == 'identity':
                 # We are adding one Identity() layer in Noiser anyway
                 pass
