@@ -1,2 +1,8 @@
 /HiDDeN/experiments/*
 /HiDDeN/nq_qa_combined_384d.npy
+/dataset/*
+/results/*
+/experiments/*
+/__pycache__/*
+/HiDDeN/*
+.idea/*

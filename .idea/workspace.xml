@@ -5,8 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="e527823e-79cf-483c-a4ba-18498f27b5aa" name="更改" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/HiDDeN/model/vector_decoder.py" beforeDir="false" afterPath="$PROJECT_DIR$/HiDDeN/model/vector_decoder.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/HiDDeN/model/vector_encoder.py" beforeDir="false" afterPath="$PROJECT_DIR$/HiDDeN/model/vector_encoder.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/HiDDeN/noise_layers/vnoise_layers.py" beforeDir="false" afterPath="$PROJECT_DIR$/HiDDeN/noise_layers/vnoise_layers.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/HiDDeN/train_vector.py" beforeDir="false" afterPath="$PROJECT_DIR$/HiDDeN/train_vector.py" afterDir="false" />
     </list>

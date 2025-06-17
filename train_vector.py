@@ -14,9 +14,9 @@ from torch import amp
 import matplotlib.pyplot as plt
 
 from vector_dataset  import VectorWatermarkSet
-from model.vector_encoder  import AdvVectorEncoder
-from model.vector_decoder  import AdvVectorDecoder
-from noise_layers.vnoise_layers   import Compose, GaussianNoise, Quantize, DimMask
+from src.vector_encoder  import AdvVectorEncoder
+from src.vector_decoder  import AdvVectorDecoder
+from src.vnoise_layers   import Compose, GaussianNoise, Quantize, DimMask
 
 
 # ───────── CLI ─────────
@@ -28,7 +28,7 @@ def get_args():
     p.add_argument("--batch",       type=int, default=8192)
     p.add_argument("--epochs",      type=int, default=100)
     p.add_argument("--lr",          type=float, default=3e-4)
-    p.add_argument("--exp_dir",     default="experiments/vector_val")
+    p.add_argument("--exp_dir",     default="results/vector_val")
     p.add_argument("--val_ratio",   type=float, default=0.15, help="验证集比例")
     p.add_argument("--seed",        type=int, default=42)
     return p.parse_args()
