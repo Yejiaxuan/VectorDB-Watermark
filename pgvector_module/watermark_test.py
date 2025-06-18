@@ -12,6 +12,7 @@ sys.path.insert(0, ROOT)
 import psycopg2
 import numpy as np
 import faiss
+import torch
 from pgvector.psycopg2 import register_vector
 
 # 引入水印处理类
@@ -92,8 +93,15 @@ def main():
         pos = ids.index(oid)
         cover = data[pos]  # 384-d vector
 
+        # 转换为 PyTorch 张量
+        cover_tensor = torch.from_numpy(cover).float()
+
+        # 归一化
+        norm = torch.norm(cover_tensor, p=2, dim=-1, keepdim=True)
+        cover_tensor = cover_tensor / (norm + 1e-8)
+
         # 嵌入水印，随机消息
-        stego_tensor, msg_bits = wm.encode(cover, random_msg=True)
+        stego_tensor, msg_bits = wm.encode(cover_tensor, random_msg=True)
         stego_np = stego_tensor.cpu().numpy().squeeze()
 
         # 提取水印
@@ -101,7 +109,11 @@ def main():
 
         # 计算 BER 与 MSE
         ber = wm.compute_ber(msg_bits, rec_bits)
-        mse = float(((stego_np - cover)**2).mean())
+        # 将PyTorch张量转换为NumPy数组以进行MSE计算
+        mse = float(((stego_np - cover_tensor.cpu().numpy().squeeze())**2).mean())
+
+        # 添加这里：逆归一化，恢复原始尺度
+        stego_np = stego_np * norm.cpu().numpy().squeeze()
 
         # 打印信息
         print(f"ID={oid}: in_degree={in_degs[oid]}")

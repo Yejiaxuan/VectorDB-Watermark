@@ -244,7 +244,7 @@ if __name__ == "__main__":
         model_path="results/vector_val/best.pt"
     )
     # 加载训练时使用的同一数据集
-    data_path = "dataset/qa/nq_qa_combined_384d.npy"
+    data_path = "HiDDeN/nq_qa_combined_384d.npy"
     dataset = VectorWatermarkSet(data_path, msg_len=96)
     
     # 随机选择10个向量进行测试
@@ -273,6 +273,9 @@ if __name__ == "__main__":
     else:
         # 如果有特定消息，则传入 msg 参数
         cover = cover_sample[:10]
+
+    norm = torch.norm(cover, p=2, dim=-1, keepdim=True)
+    cover = cover / (norm + 1e-8)
 
     # 编码
     stego, original_msg = watermark.encode(cover, msg)
