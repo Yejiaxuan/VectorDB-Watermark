@@ -234,17 +234,46 @@ class VectorWatermark:
 
 # 使用示例
 if __name__ == "__main__":
+    import numpy as np
+    from vector_dataset import VectorWatermarkSet
+    
     # 创建水印处理器实例
     watermark = VectorWatermark(
         vec_dim=384,
         msg_len=96,
         model_path="results/vector_val/best.pt"
     )
+    # 加载训练时使用的同一数据集
+    data_path = "dataset/qa/nq_qa_combined_384d.npy"
+    dataset = VectorWatermarkSet(data_path, msg_len=96)
     
+    # 随机选择10个向量进行测试
+    indices = np.random.choice(len(dataset), 10, replace=False)
+    test_vectors = []
+    for idx in indices:
+        cover, _ = dataset[idx]  # 忽略数据集中的消息，我们将使用自己的消息
+        test_vectors.append(cover)
+    
+    # 将向量堆叠成批次
+    cover_sample = torch.stack(test_vectors)
+    norm = torch.norm(cover_sample, p=2, dim=-1, keepdim=True)
+    cover_sample = cover_sample / (norm + 1e-8)  # 归一化处理
     # 示例向量和消息
+    
     cover = torch.randn(10, 384)  # 10个模拟的向量
+    norm = torch.norm(cover, p=2, dim=-1, keepdim=True)
+    cover = cover / (norm + 1e-8)
     msg = torch.randint(0, 2, (10, 96)).float()  # 随机二进制消息
     
+    flag= False  # 是否使用随机消息
+
+    if flag:
+        # 如果需要随机消息，则不传入 msg 参数
+        cover=cover
+    else:
+        # 如果有特定消息，则传入 msg 参数
+        cover = cover_sample[:10]
+
     # 编码
     stego, original_msg = watermark.encode(cover, msg)
     print(f"载体向量形状: {cover.shape}")
@@ -260,3 +289,42 @@ if __name__ == "__main__":
     # 评估
     ber = watermark.compute_ber(original_msg, extracted_msg)
     print(f"比特错误率: {ber:.2%}")
+
+    print("\n===== 诊断信息 =====")
+    print(f"使用设备: {watermark.device}")
+    
+    # 1. 检查是否有任何编码/解码发生
+    print("\n1. 编码前后的向量差异:")
+    cover_sample = cover[0].cpu().numpy()
+    stego_sample = stego[0].cpu().numpy()
+    diff = np.abs(cover_sample - stego_sample)
+    print(f"   最大差异: {diff.max():.6f}")
+    print(f"   平均差异: {diff.mean():.6f}")
+    
+    # 2. 检查解码是否产生变化
+    print("\n2. 解码结果分布:")
+    # 获取原始解码输出（不经过阈值处理）
+    with torch.no_grad():
+        raw_logits = watermark.decoder(stego)
+        probabilities = torch.sigmoid(raw_logits).cpu().numpy()
+    
+    # 检查概率分布
+    hist, _ = np.histogram(probabilities, bins=[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+    print(f"   概率分布: {hist}")
+    print(f"   中位数概率: {np.median(probabilities):.4f}")
+    print(f"   最大概率: {np.max(probabilities):.4f}")
+    print(f"   最小概率: {np.min(probabilities):.4f}")
+    
+    # 3. 对比原始和提取的消息
+    print("\n3. 消息对比:")
+    original_sample = original_msg[0].cpu().numpy()
+    extracted_sample = extracted_msg[0].cpu().numpy()
+    print(f"   原始消息前20位: {original_sample[:20]}")
+    print(f"   提取消息前20位: {extracted_sample[:20]}")
+    
+    # 4. 尝试不同阈值
+    print("\n4. 不同阈值的BER:")
+    for threshold in [0.3, 0.4, 0.5, 0.6, 0.7]:
+        thresholded = (probabilities > threshold).astype(float)
+        ber_t = np.mean(thresholded != original_msg.cpu().numpy())
+        print(f"   阈值 {threshold:.1f}: BER = {ber_t:.2%}")

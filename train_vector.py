@@ -22,7 +22,7 @@ from src.vnoise_layers   import Compose, GaussianNoise, Quantize, DimMask
 # ───────── CLI ─────────
 def get_args():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--data",        default="HiDDeN/nq_qa_combined_384d.npy", help="向量 npy/pt 文件")
+    p.add_argument("--data",        default="dataset/qa/nq_qa_combined_384d.npy", help="向量 npy/pt 文件")
     p.add_argument("--msg_len",     type=int, default=96)
     p.add_argument("--vec_dim",     type=int, default=384)
     p.add_argument("--batch",       type=int, default=8192)
@@ -48,7 +48,7 @@ def evaluate(model_tuple, loader, noise, lam, device):
     for cover, msg in loader:
         cover = cover.to(device).float()
         msg   = msg.to(device).float()
-        logits = dec(noise(enc(cover, msg)))
+        logits = dec(enc(cover, msg))
         probs = torch.sigmoid(logits.float())  # 只 sigmoid 一次
         bce = F.binary_cross_entropy_with_logits(
             logits.float(),  # AMP 自动处理精度
@@ -126,10 +126,12 @@ def main():
         for cover, msg in train_loader:
             cover = cover.to(device).float()
             msg   = msg.to(device).float()
+            norm = torch.norm(cover, p=2, dim=-1, keepdim=True)
+            cover = cover / (norm + 1e-8)
 
             with amp.autocast(enabled=(device=="cuda"),device_type="cuda"):
                 stego  = enc(cover, msg)
-                logits = dec(noise(stego))
+                logits = dec(stego)
                 probs = torch.sigmoid(logits.float())  # 只 sigmoid 一次
                 bce = F.binary_cross_entropy_with_logits(
                     logits.float(),  # AMP 自动处理精度
