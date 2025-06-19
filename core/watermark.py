@@ -10,8 +10,8 @@ import numpy as np
 from pathlib import Path
 from typing import Union, Tuple, Dict, Optional
 
-from src.vector_encoder import AdvVectorEncoder
-from src.vector_decoder import AdvVectorDecoder
+from algorithms.deep_learning.encoder import AdvVectorEncoder
+from algorithms.deep_learning.decoder import AdvVectorDecoder
 
 
 class VectorWatermark:
@@ -235,7 +235,7 @@ class VectorWatermark:
 # 使用示例
 if __name__ == "__main__":
     import numpy as np
-    from vector_dataset import VectorWatermarkSet
+    from core.dataset import VectorWatermarkSet
     
     # 创建水印处理器实例
     watermark = VectorWatermark(

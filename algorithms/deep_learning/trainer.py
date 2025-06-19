@@ -13,10 +13,10 @@ from torch.utils.data import DataLoader, random_split
 from torch import amp
 import matplotlib.pyplot as plt
 
-from vector_dataset  import VectorWatermarkSet
-from src.vector_encoder  import AdvVectorEncoder
-from src.vector_decoder  import AdvVectorDecoder
-from src.vnoise_layers   import Compose, GaussianNoise, Quantize, DimMask
+from core.dataset import VectorWatermarkSet
+from algorithms.deep_learning.encoder import AdvVectorEncoder
+from algorithms.deep_learning.decoder import AdvVectorDecoder
+from algorithms.deep_learning.noise_layers import Compose, GaussianNoise, Quantize, DimMask
 
 
 # ───────── CLI ─────────

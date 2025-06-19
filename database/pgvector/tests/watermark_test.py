@@ -16,7 +16,7 @@ import torch
 from pgvector.psycopg2 import register_vector
 
 # 引入水印处理类
-from vector_watermark import VectorWatermark
+from core.watermark import VectorWatermark
 
 # —— 配置区 ——
 DB_PARAMS = {

@@ -19,7 +19,7 @@ import faiss
 import torch
 from pgvector.psycopg2 import register_vector
 
-from vector_watermark import VectorWatermark
+from core.watermark import VectorWatermark
 
 # —— 配置区 ——
 DB_PARAMS = {
