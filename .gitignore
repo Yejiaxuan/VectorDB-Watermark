@@ -1,8 +1,3 @@
-# 忽略 HiDDeN 相关文件
-/HiDDeN/experiments/*
-/HiDDeN/nq_qa_combined_384d.npy
-/HiDDeN/*
-
 # 忽略数据集相关文件
 /dataset/*
 
