@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 全局背景色与布局重置 */
+html,
+body {
+  @apply min-h-screen bg-gray-300;
+  margin: 0;
+  padding: 0;
+}

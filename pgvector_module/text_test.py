@@ -37,7 +37,7 @@ EF_CONSTRUCTION = int(os.getenv('HNSW_EF_CONSTRUCTION', 200))
 EF_SEARCH       = int(os.getenv('HNSW_EF_SEARCH', 50))
 MODEL_PATH      = os.getenv('WM_MODEL_PATH', 'results/vector_val/best.pt')
 MSG_LEN         = 96     # 与训练一致
-RETURN_TOP_K    = 500    # 扩大检验规模
+RETURN_TOP_K    = 50    # 扩大检验规模
 # ———————————————
 
 def text_to_bits(s: str, msg_len: int) -> torch.Tensor:
