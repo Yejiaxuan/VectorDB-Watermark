@@ -23,7 +23,7 @@ from algorithms.deep_learning.noise_layers import Compose, GaussianNoise, Quanti
 def get_args():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("--data",        default="HiDDeN/nq_qa_combined_384d.npy", help="向量 npy/pt 文件")
-    p.add_argument("--msg_len",     type=int, default=96)
+    p.add_argument("--msg_len",     type=int, default=24)
     p.add_argument("--vec_dim",     type=int, default=384)
     p.add_argument("--batch",       type=int, default=8192)
     p.add_argument("--epochs",      type=int, default=100)
