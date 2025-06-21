@@ -1,9 +1,6 @@
 # 忽略数据集相关文件
 /dataset/*
 
-# 忽略结果文件
-/results/*
-
 # 忽略实验文件
 /experiments/*
 
