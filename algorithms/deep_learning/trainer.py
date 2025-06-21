@@ -13,22 +13,22 @@ from torch.utils.data import DataLoader, random_split
 from torch import amp
 import matplotlib.pyplot as plt
 
-from core.dataset import VectorWatermarkSet
-from algorithms.deep_learning.encoder import AdvVectorEncoder
-from algorithms.deep_learning.decoder import AdvVectorDecoder
-from algorithms.deep_learning.noise_layers import Compose, GaussianNoise, Quantize, DimMask
+from .dataset import VectorWatermarkSet
+from .encoder import AdvVectorEncoder
+from .decoder import AdvVectorDecoder
+from .noise_layers import Compose, GaussianNoise, Quantize, DimMask
 
 
 # ───────── CLI ─────────
 def get_args():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--data",        default="HiDDeN/nq_qa_combined_384d.npy", help="向量 npy/pt 文件")
+    p.add_argument("--data",        default="nq_qa_combined_384d.npy", help="向量 npy/pt 文件")
     p.add_argument("--msg_len",     type=int, default=24)
     p.add_argument("--vec_dim",     type=int, default=384)
     p.add_argument("--batch",       type=int, default=8192)
     p.add_argument("--epochs",      type=int, default=100)
     p.add_argument("--lr",          type=float, default=3e-4)
-    p.add_argument("--exp_dir",     default="results/vector_val")
+    p.add_argument("--exp_dir",     default="algorithms/deep_learning/results/vector_val")
     p.add_argument("--val_ratio",   type=float, default=0.15, help="验证集比例")
     p.add_argument("--seed",        type=int, default=42)
     return p.parse_args()

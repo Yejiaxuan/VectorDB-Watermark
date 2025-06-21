@@ -14,14 +14,14 @@ import numpy as np
 import faiss
 import torch
 from pgvector.psycopg2 import register_vector
-from core.watermark import VectorWatermark
+from algorithms.deep_learning.watermark import VectorWatermark
 
 # —— 核心参数 —— #
 DIM             = 384        # 向量维度
 M               = 16         # HNSW参数
 EF_CONSTRUCTION = 200        # HNSW构建参数
 EF_SEARCH       = 50         # HNSW搜索参数
-MODEL_PATH      = os.getenv('WM_MODEL_PATH', 'results/vector_val/best.pt')  # 模型路径
+MODEL_PATH      = os.getenv('WM_MODEL_PATH', os.path.join(os.path.dirname(os.path.dirname(__file__)), 'algorithms/deep_learning/results/vector_val/best.pt'))  # 模型路径
 
 # —— 水印参数 —— #
 MSG_LEN       = 24    # 4 idx + 4 CRC + 16 payload

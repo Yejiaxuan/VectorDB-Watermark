@@ -1,4 +1,3 @@
-# vector_dataset.py
 import torch, numpy as np
 from torch.utils.data import Dataset
 
