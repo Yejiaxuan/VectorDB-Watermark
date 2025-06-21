@@ -1,6 +1,6 @@
 // web_ui/src/pages/MilvusPage.jsx
 import React, { useState } from 'react';
-import { getLowDegreeVectors } from '../api';
+// 删除了对不存在函数的导入
 
 export default function MilvusPage() {
   const [n, setN] = useState(10);
@@ -10,9 +10,10 @@ export default function MilvusPage() {
   const fetchMilvusVectors = async () => {
     setLoading(true);
     try {
-      // TODO: 替换为真正的 Milvus 接口
-      const list = await getLowDegreeVectors(n);
-      setIds(list);
+      // 使用模拟数据替代之前的 API 调用
+      // 生成 n 个从 1000 开始的连续 ID
+      const mockIds = Array.from({ length: n }, (_, i) => 1000 + i);
+      setIds(mockIds);
     } catch (err) {
       console.error(err);
       alert('获取 Milvus 向量失败');

@@ -1,3 +1,5 @@
+# backend/models.py
+
 from pydantic import BaseModel
 
 class DBParams(BaseModel):
