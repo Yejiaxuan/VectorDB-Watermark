@@ -12,7 +12,7 @@ def start_backend():
     return subprocess.Popen([
         sys.executable, "-m", "uvicorn", "backend.app:app",
         "--reload", "--port", "8000"
-    ], cwd=os.path.join(PROJECT_ROOT, "backend"))
+    ])
 
 
 def start_frontend():

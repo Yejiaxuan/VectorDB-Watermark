@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
 import PgvectorPage from './pages/PgvectorPage';
-import MilvusPage   from './pages/MilvusPage';
+// 移除 import MilvusPage from './pages/MilvusPage';
 
 export default function App() {
   return (
@@ -26,7 +26,7 @@ export default function App() {
         {/* 主内容区 */}
         <main className="flex-grow container mx-auto px-6 py-12">
           <Routes>
-            {/* 首页：居中展示两个按钮 */}
+            {/* 首页：居中展示单个按钮 */}
             <Route
               path="/"
               element={
@@ -34,25 +34,19 @@ export default function App() {
                   <h1 className="text-4xl font-extrabold mb-8 text-gray-800">
                     请选择向量数据库
                   </h1>
-                  <div className="space-x-6">
+                  <div>
                     <Link
                       to="/pgvector"
                       className="px-8 py-3 bg-green-500 hover:bg-green-600 text-white rounded-lg shadow"
                     >
                       PGVector
                     </Link>
-                    <Link
-                      to="/milvus"
-                      className="px-8 py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-lg shadow"
-                    >
-                      Milvus
-                    </Link>
                   </div>
                 </div>
               }
             />
             <Route path="/pgvector" element={<PgvectorPage />} />
-            <Route path="/milvus"   element={<MilvusPage   />} />
+            {/* 移除 <Route path="/milvus" element={<MilvusPage />} /> */}
           </Routes>
         </main>
 

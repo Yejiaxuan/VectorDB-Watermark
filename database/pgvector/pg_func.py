@@ -29,6 +29,7 @@ MSG_LEN = 24  # 4 idx + 4 CRC + 16 payload
 BLOCK_PAYLOAD = 16  # 每块载荷比特数
 BLOCK_COUNT = 16  # 块数量
 TOTAL_VECS = 1600  # 默认使用的向量数量
+MAX_IN_DEGREE = 5
 # ————————————— #
 
 
@@ -120,10 +121,10 @@ def compute_in_degrees(idx, ids: list):
 
 def select_low_degree_ids(ids: list, in_degs: dict, k=None):
     """
-    选择入度≤2的向量ID
+    选择入度≤MAX_IN_DEGREE的向量ID
     """
     # 过滤所有入度小于等于2的向量
-    filtered = [(id_, deg) for id_, deg in in_degs.items() if deg <= 2]
+    filtered = [(id_, deg) for id_, deg in in_degs.items() if deg <= MAX_IN_DEGREE]
     # 确保结果稳定：入度相同时按ID排序
     pairs = sorted(filtered, key=lambda x: (x[1], x[0]))
     return [pid for pid, _ in pairs]
@@ -263,7 +264,7 @@ def backup_vectors(db_params, table_name, id_col, emb_col, low_ids, file_path='o
 
 def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=TOTAL_VECS, ids_file=None):
     """
-    嵌入水印流程 - 使用入度≤2的向量
+    嵌入水印流程 - 使用入度≤MAX_IN_DEGREE的向量
     """
     # 生成默认的IDS文件名
     if ids_file is None:
@@ -294,7 +295,7 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=
         if len(low_ids) < BLOCK_COUNT:
             return {
                 "success": False,
-                "error": f"入度≤2的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
+                "error": f"入度≤5的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
             }
 
         # 保存ID列表到文件
@@ -310,7 +311,7 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=
         # 添加使用的向量数量到返回信息
         return {
             "success": True,
-            "message": f"水印嵌入完成，使用了{len(low_ids)}个入度≤2的向量，更新了{updated}个向量",
+            "message": f"水印嵌入完成，使用了{len(low_ids)}个入度≤5的向量，更新了{updated}个向量",
             "updated": updated,
             "used_vectors": len(low_ids),
             "ids_file": ids_file
