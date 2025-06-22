@@ -27,7 +27,7 @@ DbWM/
 │       └── Docker/
 │           ├── docker-compose.yml   # Docker配置
 │           └── init.sql             # 数据库初始化脚本
-├── web_ui/                          # 前端用户界面
+├── frontend/                          # 前端用户界面
 │   ├── src/
 │   │   ├── pages/
 │   │   │   ├── MilvusPage.jsx       # Milvus管理页面
