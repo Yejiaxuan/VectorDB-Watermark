@@ -17,7 +17,7 @@ def start_backend():
 
 def start_frontend():
     print("启动前端...")
-    frontend_dir = os.path.join(PROJECT_ROOT, "web_ui")
+    frontend_dir = os.path.join(PROJECT_ROOT, "frontend")
 
     # 检查并安装依赖
     if not os.path.exists(os.path.join(frontend_dir, "node_modules")):
