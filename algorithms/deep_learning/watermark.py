@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 vector_watermark.py - 向量水印编码/解码实现
 """
@@ -20,7 +18,7 @@ class VectorWatermark:
     def __init__(
         self,
         vec_dim: int = 384,
-        msg_len: int = 96,
+        msg_len: int = 24,  # 修改为24位消息长度，符合dataset格式
         model_path: Optional[str] = None,
         device: str = None
     ):
@@ -29,7 +27,7 @@ class VectorWatermark:
         
         参数:
             vec_dim: 向量维度
-            msg_len: 消息长度（比特数）
+            msg_len: 消息长度（比特数），默认24位（4位索引+4位CRC+16位载荷）
             model_path: 预训练模型权重路径
             device: 计算设备，None 时自动选择
         """
@@ -79,6 +77,43 @@ class VectorWatermark:
         self.encoder.load_state_dict(checkpoint['enc'])
         self.decoder.load_state_dict(checkpoint['dec'])
         print(f"成功加载模型权重: {model_path}")
+    
+    def generate_message(self, batch_size: int = 1) -> torch.Tensor:
+        """
+        按照dataset格式生成消息：4位索引 + 4位CRC + 16位载荷
+        
+        参数:
+            batch_size: 批量大小
+            
+        返回:
+            消息张量，形状 (batch_size, 24)
+        """
+        messages = []
+        
+        for _ in range(batch_size):
+            # 1) 随机选一个块索引 k ∈ [0,16)
+            k = np.random.randint(0, 16)
+            idx_bits = [(k >> i) & 1 for i in reversed(range(4))]  # MSB first
+            
+            # 2) 计算 4 bit CRC-4 校验（多项式 0x3）
+            reg = 0
+            for bit in idx_bits:
+                reg ^= (bit << 3)
+                for _ in range(4):
+                    if reg & 0x8:
+                        reg = ((reg << 1) & 0xF) ^ 0x3
+                    else:
+                        reg = (reg << 1) & 0xF
+            crc_bits = [(reg >> i) & 1 for i in reversed(range(4))]
+            
+            # 3) 随机生成 16 bit payload
+            payload = np.random.randint(0, 2, size=(16,), dtype=np.uint8).tolist()
+            
+            # 4) 拼成 24 bit 消息
+            msg_bits = idx_bits + crc_bits + payload
+            messages.append(msg_bits)
+            
+        return torch.tensor(messages, dtype=torch.float32, device=self.device)
         
     def encode(
         self, 
@@ -114,9 +149,8 @@ class VectorWatermark:
         # 处理消息
         if message is None:
             if random_msg:
-                # 生成随机二进制消息
-                message = torch.randint(0, 2, (batch_size, self.msg_len), 
-                                       device=self.device).float()
+                # 生成符合指定格式的随机消息
+                message = self.generate_message(batch_size)
             else:
                 raise ValueError("必须提供消息或设置 random_msg=True")
         elif isinstance(message, np.ndarray):
@@ -128,9 +162,18 @@ class VectorWatermark:
         if message.dim() == 1:
             message = message.unsqueeze(0)
             
+        # 存储原始向量的范数，用于后续恢复
+        original_norms = torch.norm(cover_vec, p=2, dim=1, keepdim=True)
+        
+        # 对输入向量进行L2归一化
+        normalized_cover = F.normalize(cover_vec, p=2, dim=1)
+            
         # 编码过程
         with torch.no_grad():
-            stego_vec = self.encoder(cover_vec, message)
+            normalized_stego = self.encoder(normalized_cover, message)
+            
+        # 反归一化，恢复原始范数
+        stego_vec = normalized_stego * original_norms
             
         return stego_vec, message
     
@@ -158,9 +201,12 @@ class VectorWatermark:
         if stego_vec.dim() == 1:
             stego_vec = stego_vec.unsqueeze(0)  # 添加批次维度
             
+        # 对输入向量进行L2归一化
+        normalized_stego = F.normalize(stego_vec, p=2, dim=1)
+            
         # 解码过程
         with torch.no_grad():
-            logits = self.decoder(stego_vec)
+            logits = self.decoder(normalized_stego)
             message = torch.sigmoid(logits) > 0.5
             
         return message.float()
@@ -198,7 +244,7 @@ class VectorWatermark:
         
         参数:
             cover_vec: 载体向量
-            message: 水印消息，如果为None则随机生成
+            message: 水印消息，如果为None则随机生成符合格式的消息
             return_numpy: 是否返回numpy数组
             
         返回:
@@ -230,3 +276,41 @@ class VectorWatermark:
         if return_numpy and isinstance(message, torch.Tensor):
             return message.cpu().numpy()
         return message
+    
+    def verify_message(self, message: torch.Tensor) -> bool:
+        """
+        验证消息的CRC校验和是否正确
+        
+        参数:
+            message: 形状为(msg_len,)或(batch_size, msg_len)的消息
+            
+        返回:
+            校验是否通过的布尔值或布尔值列表
+        """
+        if message.dim() == 1:
+            message = message.unsqueeze(0)
+        
+        batch_size = message.shape[0]
+        results = []
+        
+        for i in range(batch_size):
+            msg = message[i]
+            idx_bits = msg[:4].cpu().int().tolist()
+            crc_bits = msg[4:8].cpu().int().tolist()
+            
+            # 计算CRC校验
+            reg = 0
+            for bit in idx_bits:
+                reg ^= (bit << 3)
+                for _ in range(4):
+                    if reg & 0x8:
+                        reg = ((reg << 1) & 0xF) ^ 0x3
+                    else:
+                        reg = (reg << 1) & 0xF
+            expected_crc = [(reg >> j) & 1 for j in reversed(range(4))]
+            
+            # 比较计算的CRC和解码的CRC
+            is_valid = (expected_crc == crc_bits)
+            results.append(is_valid)
+            
+        return results[0] if len(results) == 1 else results

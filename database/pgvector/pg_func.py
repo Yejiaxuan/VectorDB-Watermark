@@ -183,13 +183,11 @@ def embed_into_db(low_ids: list, data: np.ndarray, chunks: list, wm: VectorWater
 
         # 嵌入水印
         vec = sel_data[i]
-        cover = torch.tensor(vec, device=device)
-        cover_norm = cover / (cover.norm(p=2) + 1e-8)
+        cover = torch.tensor(vec, device=device).unsqueeze(0) 
 
         msg_t = torch.tensor([msg_bits], dtype=torch.float32, device=device)
-        stego_n, _ = wm.encode(cover_norm.unsqueeze(0), message=msg_t)
-        stego_n = stego_n.squeeze(0)
-        stego = (stego_n * norms[i]).cpu().numpy().astype(np.float32)
+        stego, _ = wm.encode(cover, message=msg_t) 
+        stego = stego.squeeze(0).cpu().numpy().astype(np.float32) 
         stegos.append(stego)
 
     # 打印每个区块分配的向量数量
@@ -220,10 +218,9 @@ def extract_from_db(db_params, table_name, id_col, emb_col, low_ids: list, wm: V
 
     for oid, vec in rows:
         vec = np.array(vec, dtype=np.float32)
-        cover = torch.tensor(vec, device=device)
-        cover_norm = cover / (cover.norm(p=2) + 1e-8)
+        cover = torch.tensor(vec, device=device).unsqueeze(0) 
 
-        rec_bits = wm.decode(cover_norm.unsqueeze(0)) \
+        rec_bits = wm.decode(cover) \
             .squeeze(0).cpu().numpy().astype(int).tolist()
         idx_bits, crc_bits = rec_bits[:4], rec_bits[4:8]
         payload = rec_bits[8:]

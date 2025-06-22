@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 train_vector.py  –  向量隐写训练 + 训练/验证曲线
 """
 
-import os, math, argparse, random
+import os, math, argparse, random,sys
 from pathlib import Path
 from multiprocessing import freeze_support
 
@@ -22,13 +20,13 @@ from .noise_layers import Compose, GaussianNoise, Quantize, DimMask
 # ───────── CLI ─────────
 def get_args():
     p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--data",        default="nq_qa_combined_384d.npy", help="向量 npy/pt 文件")
+    p.add_argument("--data",        default="algorithms/deep_learning/dataset/qa/nq_qa_combined_384d.npy", help="向量 npy/pt 文件")
     p.add_argument("--msg_len",     type=int, default=24)
     p.add_argument("--vec_dim",     type=int, default=384)
     p.add_argument("--batch",       type=int, default=8192)
     p.add_argument("--epochs",      type=int, default=100)
     p.add_argument("--lr",          type=float, default=3e-4)
-    p.add_argument("--exp_dir",     default="algorithms/deep_learning/results/vector_val")
+    p.add_argument("--exp_dir",     default="algorithms/deep_learning/results/noise_test")
     p.add_argument("--val_ratio",   type=float, default=0.15, help="验证集比例")
     p.add_argument("--seed",        type=int, default=42)
     return p.parse_args()
@@ -48,7 +46,11 @@ def evaluate(model_tuple, loader, noise, lam, device):
     for cover, msg in loader:
         cover = cover.to(device).float()
         msg   = msg.to(device).float()
-        logits = dec(enc(cover, msg))
+        
+        stego = enc(cover, msg)
+        stego_noisy = noise(stego) # 在评估中应用噪声
+        logits = dec(stego_noisy)
+
         probs = torch.sigmoid(logits.float())  # 只 sigmoid 一次
         bce = F.binary_cross_entropy_with_logits(
             logits.float(),  # AMP 自动处理精度
@@ -98,6 +100,30 @@ def main():
     dec_sched = torch.optim.lr_scheduler.LambdaLR(dec_opt, lr_lambda)
     scaler    = amp.GradScaler(enabled=(device=="cuda"))
 
+    # ---------- 噪声池与验证噪声 ----------
+    # 定义一个固定的、有代表性的噪声组合用于验证，以便稳定地跟踪模型性能
+    val_noise = Compose((GaussianNoise(0.02), Quantize(10))).to(device)
+
+    # 定义一个"噪声池"，包含所有可能遇到的攻击
+    # 新的策略将从中随机采样并组合，而不是使用固定的多阶段计划
+    noise_pool = [
+        GaussianNoise(0.01),
+        GaussianNoise(0.02),
+        Quantize(12),
+        Quantize(10),
+        Quantize(8),
+        DimMask(0.95),
+        DimMask(0.9),
+    ]
+    for n in noise_pool:
+        n.to(device)
+
+    # HiDDeN 核心思想：渐进式增加噪声的复杂度和强度 (Curriculum Learning)
+    # 训练过程中，我们将动态地从 `noise_pool` 中采样并组合噪声。
+    # 随着 epoch 增加，组合的噪声数量上限会提高，从而增加攻击的复杂度。
+    # 同时，我们始终保留一定概率应用无噪声（Identity）的情况，防止模型对噪声产生依赖。
+
+
     # 指标列表
     tr_loss, tr_bce, tr_ber = [], [], []
     va_loss, va_bce, va_ber = [], [], []
@@ -106,17 +132,13 @@ def main():
 
     for ep in range(1, args.epochs + 1):
 
-        # ---------- 动态噪声 ----------
-        if ep <= 20:
-            noise = Compose((GaussianNoise(0.02),)).to(device)
-        elif ep <= 40:
-            noise = Compose((GaussianNoise(0.02), Quantize(12))).to(device)
-        elif ep <= 60:
-            noise = Compose((GaussianNoise(0.02), Quantize(10))).to(device)
-        elif ep <= 80:
-            noise = Compose((GaussianNoise(0.02), Quantize(8))).to(device)
-        else:
-            noise = Compose((GaussianNoise(0.02), Quantize(8), DimMask(0.9))).to(device)
+        # ---------- 动态噪声策略选择 ----------
+        # 课程学习：随着训练进行，逐渐增加允许组合的最多噪声数量
+        # 阶段1 (ep 1-25): 最多1种噪声
+        # 阶段2 (ep 26-50): 最多2种噪声
+        # 阶段3 (ep 51-75): 最多3种噪声
+        # 阶段4 (ep 76-100): 最多3种噪声 (保持最高强度)
+        max_noises_to_compose = min(1 + (ep - 1) // (args.epochs // 4), 3)
 
         enc.delta_scale = min(0.03, 0.02*(1+0.5*ep/args.epochs))
         lam = lambda_mse(ep, args.epochs)
@@ -129,9 +151,20 @@ def main():
             norm = torch.norm(cover, p=2, dim=-1, keepdim=True)
             cover = cover / (norm + 1e-8)
 
+            # 在每个 batch 中应用动态噪声策略
+            # 有 20% 的概率不施加任何噪声，训练模型在干净数据上的性能
+            if random.random() < 0.2:
+                noise = nn.Identity().to(device)
+            else:
+                # 从噪声池中随机选择 1 到 `max_noises_to_compose` 个噪声进行组合
+                num_noises = random.randint(1, max_noises_to_compose)
+                noises_to_apply = random.sample(noise_pool, k=num_noises)
+                noise = Compose(noises_to_apply)
+
             with amp.autocast(enabled=(device=="cuda"),device_type="cuda"):
                 stego  = enc(cover, msg)
-                logits = dec(stego)
+                stego_noisy = noise(stego)   # 关键：对隐写向量应用噪声
+                logits = dec(stego_noisy)    # 关键：解码器处理带噪向量
                 probs = torch.sigmoid(logits.float())  # 只 sigmoid 一次
                 bce = F.binary_cross_entropy_with_logits(
                     logits.float(),  # AMP 自动处理精度
@@ -154,7 +187,8 @@ def main():
         tr_loss.append(ep_l/n_batch); tr_bce.append(ep_b/n_batch); tr_ber.append(ep_r/n_batch)
 
         # ---------- 验证 ----------
-        v_loss, v_bce, v_ber = evaluate((enc, dec), val_loader, noise, lam, device)
+        # 使用固定的验证噪声来评估模型，以获得可比较的性能指标
+        v_loss, v_bce, v_ber = evaluate((enc, dec), val_loader, val_noise, lam, device)
         va_loss.append(v_loss); va_bce.append(v_bce); va_ber.append(v_ber)
 
         print(f"E{ep:03d} | Train loss {tr_loss[-1]:.4f}  BCE {tr_bce[-1]:.4f}  BER {tr_ber[-1]:.3%} "
