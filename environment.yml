@@ -1,4 +1,4 @@
-name: watermark
+name: dbwm
 channels:
   - pytorch
   - nvidia
