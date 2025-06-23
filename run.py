@@ -11,7 +11,10 @@ def start_backend():
     print("启动后端...")
     return subprocess.Popen([
         sys.executable, "-m", "uvicorn", "backend.app:app",
-        "--reload", "--port", "8000"
+        "--reload",
+        "--reload-dir", "backend",
+        "--reload-exclude", "frontend/node_modules",
+        "--port", "8000"
     ])
 
 
