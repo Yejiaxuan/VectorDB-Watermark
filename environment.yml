@@ -1,4 +1,4 @@
-name: dbwm
+name: test
 channels:
   - pytorch
   - nvidia
@@ -170,6 +170,7 @@ dependencies:
   - tbb=2021.13.0=h62715c5_1
   - tk=8.6.13=h2c6b04d_2
   - tornado=6.5.1=py310ha8f682b_0
+  - tqdm=4.67.1
   - typer=0.16.0=pyh167b9f4_0
   - typer-slim=0.16.0=pyhe01879c_0
   - typer-slim-standard=0.16.0=hf964461_0
