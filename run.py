@@ -13,7 +13,6 @@ def start_backend():
         sys.executable, "-m", "uvicorn", "backend.app:app",
         "--reload",
         "--reload-dir", "backend",
-        "--reload-exclude", "frontend/node_modules",
         "--port", "8000"
     ])
 
