@@ -1,6 +1,7 @@
 # Compose a postgres database together with the extension pgvector
 services:
   pgvector:
+    container_name: pgvector
     hostname: pgvector
     image: ankane/pgvector
     ports:

@@ -96,7 +96,10 @@ python run.py
 
 ### 深度学习水印算法性能测试
 
-运行命令：`python -m algorithms.deep_learning.test`
+```bash
+# 在项目根目录运行
+python -m algorithms.deep_learning.test
+```
 
 #### 1. 嵌入质量（余弦相似度）
 - **平均相似度**: 0.970701
