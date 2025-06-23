@@ -26,7 +26,7 @@ DbWM/
 │   └── pgvector/                    # PostgreSQL向量数据库
 │       ├── client.py                # 数据库客户端
 │       ├── pg_func.py               # 水印相关数据库函数
-│       └── Docker/
+│       └── docker/
 │           ├── docker-compose.yml   # Docker配置
 │           └── init.sql             # 数据库初始化脚本
 ├── frontend/                        # 前端用户界面
@@ -71,7 +71,7 @@ pip install -r requirements.txt
 
 #### 启动PostgreSQL数据库
 ```bash
-cd database/pgvector/Docker
+cd database/pgvector/docker
 docker-compose -p pgvector up -d
 ```
 
