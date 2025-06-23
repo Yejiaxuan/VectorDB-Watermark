@@ -72,7 +72,7 @@ pip install -r requirements.txt
 #### 启动PostgreSQL数据库
 ```bash
 cd database/pgvector/Docker
-docker-compose up -d
+docker-compose -p pgvector up -d
 ```
 
 等待数据库启动完成后，数据库将在 `localhost:5432` 运行，默认用户名和密码参见 `docker-compose.yml`。
