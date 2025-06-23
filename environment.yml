@@ -1,4 +1,4 @@
-name: test
+name: dbwm
 channels:
   - pytorch
   - nvidia
