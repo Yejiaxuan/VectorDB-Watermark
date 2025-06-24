@@ -12,6 +12,6 @@ services:
       - POSTGRES_PASSWORD=pgvector
       - POSTGRES_HOST_AUTH_METHOD=trust
     volumes:
-      - ./data:/var/lib/postgresql/data
+      - ./volumes:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 

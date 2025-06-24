@@ -48,4 +48,4 @@ pnpm-lock.yaml
 temp_files
 
 # Docker 数据文件
-database/pgvector/docker/data/
+volumes/
