@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Toast from '../components/Toast';
+import Combobox from '../components/Combobox';
 import {
   connectDB,
   fetchTables,
@@ -9,23 +11,33 @@ import {
 } from '../api';
 
 export default function PgvectorPage() {
+  // —— 步骤控制 ——
+  const [currentStep, setCurrentStep] = useState(1);
+  const [stepCompleted, setStepCompleted] = useState(false);
+  
   // —— 数据库连接状态 ——  
-  const [ip, setIp]           = useState('localhost');
-  const [port, setPort]       = useState(5432);
-  const [dbname, setDbname]   = useState('test');
-  const [user, setUser]       = useState('postgres');
+  const [ip, setIp] = useState('localhost');
+  const [port, setPort] = useState(5432);
+  const [dbname, setDbname] = useState('test');
+  const [user, setUser] = useState('postgres');
   const [password, setPassword] = useState('');
   const [connected, setConnected] = useState(false);
   const [statusMsg, setStatusMsg] = useState('未连接');
   const [loadingConn, setLoadingConn] = useState(false);
 
+  // —— 表单验证 ——
+  const [formErrors, setFormErrors] = useState({});
+
   // —— 表/列 列表 ——  
-  const [tables, setTables]   = useState([]);
-  const [table, setTable]     = useState('');
+  const [tables, setTables] = useState([]);
+  const [table, setTable] = useState('');
   const [primaryKeys, setPrimaryKeys] = useState([]);
   const [primaryKey, setPrimaryKey] = useState('');
   const [columns, setColumns] = useState([]);
-  const [column, setColumn]   = useState('');
+  const [column, setColumn] = useState('');
+
+  // —— Tab 控制 ——
+  const [activeTab, setActiveTab] = useState('embed');
 
   // —— 水印操作状态 ——  
   const [message, setMessage] = useState('ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEF');
@@ -33,25 +45,59 @@ export default function PgvectorPage() {
   const [extractResult, setExtractResult] = useState('');
   const [isEmbedding, setIsEmbedding] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [fileId, setFileId] = useState(''); // 保存最后嵌入的文件ID
+  const [fileId, setFileId] = useState('');
   
   // —— 文件上传相关 ——
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileName, setFileName] = useState('');
   const fileInputRef = useRef(null);
-  
+
+  // —— Toast 相关 ——
+  const [toasts, setToasts] = useState([]);
+
+  // 显示Toast提示
+  const showToast = (message, type = 'success') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type, isVisible: true }]);
+  };
+
+  // 移除Toast
+  const removeToast = (id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
+
+  // 表单验证
+  const validateForm = () => {
+    const errors = {};
+    if (!ip.trim()) errors.ip = '请输入主机地址';
+    if (!port || port < 1 || port > 65535) errors.port = '请输入有效端口号';
+    if (!dbname.trim()) errors.dbname = '请输入数据库名称';
+    if (!user.trim()) errors.user = '请输入用户名';
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   // 连接数据库
   const handleConnect = async () => {
+    if (!validateForm()) return;
+    
     setLoadingConn(true);
     setStatusMsg('连接中…');
     try {
       const { success, message: msg } = await connectDB({ host: ip, port, dbname, user, password });
       setConnected(success);
       setStatusMsg(success ? msg : '连接失败');
+      if (success) {
+        setStepCompleted(true);
+        showToast('数据库连接成功！', 'success');
+        // 连接成功后自动进入下一步
+        setTimeout(() => setCurrentStep(2), 800);
+      }
     } catch (err) {
       setConnected(false);
       setStatusMsg(`错误：${err.message}`);
+      showToast(`连接失败：${err.message}`, 'error');
     } finally {
       setLoadingConn(false);
     }
@@ -73,7 +119,7 @@ export default function PgvectorPage() {
 
   // 当表格或列变更时，重置水印状态
   useEffect(() => {
-    setFileId(''); // 重置文件ID
+    setFileId('');
     setEmbedResult('');
     setExtractResult('');
   }, [table, column]);
@@ -110,35 +156,30 @@ export default function PgvectorPage() {
 
   // 嵌入水印
   const handleEmbed = async () => {
-    // 验证必要条件
     if (!connected || !message || !table || !column || !primaryKey || message.length !== 32) return;
     
-    // 设置加载状态和清除之前的结果
     setIsEmbedding(true);
-    setEmbedResult('嵌入水印中...');
+    setEmbedResult('');
     setExtractResult('');
-    setFileId(''); // 重置文件ID
+    setFileId('');
     
     try {
-      // 调用API函数
       const dbParams = { host: ip, port, dbname, user, password };
       const result = await embedWatermark(dbParams, table, primaryKey, column, message);
       
-      // 更新UI
-      setEmbedResult(`成功: ${result.message}。ID文件已自动下载，请妥善保存用于提取水印。`);
+      setEmbedResult(`${result.message}。ID文件已自动下载，请妥善保存用于提取水印。`);
+      showToast('水印嵌入成功！ID文件已下载', 'success');
       
-      // 保存文件ID供参考
       if (result.file_id) {
         setFileId(result.file_id);
       }
       
-      // 检查是否有下载警告
       if (result.downloadWarning) {
-        setEmbedResult(prev => `${prev}\n警告: ${result.downloadWarning}`);
+        showToast(result.downloadWarning, 'warning');
       }
     } catch (error) {
       setEmbedResult(`错误: ${error.message}`);
-      console.error('水印嵌入错误', error);
+      showToast(`嵌入失败：${error.message}`, 'error');
     } finally {
       setIsEmbedding(false);
     }
@@ -149,23 +190,22 @@ export default function PgvectorPage() {
     if (!connected || !table || !column || !primaryKey || !selectedFile) return;
     
     setIsExtracting(true);
-    setExtractResult('提取水印中...');
+    setExtractResult('');
     
     try {
       const dbParams = { host: ip, port, dbname, user, password };
-      
-      // 使用上传的ID文件提取
       const result = await extractWatermarkWithFile(dbParams, table, primaryKey, column, selectedFile);
       
-      // 处理结果
       if (result.success) {
         setExtractResult(`提取成功：${result.message} (恢复 ${result.recovered}/${result.blocks} 个区块)`);
+        showToast(`水印提取成功！恢复 ${result.recovered}/${result.blocks} 个区块`, 'success');
       } else {
         setExtractResult(`提取失败：${result.error}`);
+        showToast(`提取失败：${result.error}`, 'error');
       }
     } catch (error) {
       setExtractResult(`错误: ${error.message}`);
-      console.error('水印提取错误', error);
+      showToast(`提取失败：${error.message}`, 'error');
     } finally {
       setIsExtracting(false);
     }
@@ -177,6 +217,7 @@ export default function PgvectorPage() {
     if (file) {
       setSelectedFile(file);
       setFileName(file.name);
+      showToast('ID文件选择成功', 'success');
     }
   };
   
@@ -189,230 +230,495 @@ export default function PgvectorPage() {
     }
   };
 
+  // 返回上一步
+  const goBack = () => {
+    setCurrentStep(1);
+    setConnected(false);
+    setStatusMsg('未连接');
+    setStepCompleted(false);
+  };
+
   return (
-    <div className="p-8 grid grid-cols-2 gap-8">
-      {/* 左侧：连接配置 */}
-      <div className="bg-white p-6 rounded-lg shadow-md">
-        <h2 className="text-2xl font-semibold mb-4">PGVector 连接配置</h2>
-        <div className="space-y-3">
-          {/** Host/IP **/}
-          <div>
-            <label className="block font-medium">Host / IP</label>
-            <input
-              type="text"
-              value={ip}
-              onChange={e => setIp(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              disabled={loadingConn}
-            />
-          </div>
-          {/** Port **/}
-          <div>
-            <label className="block font-medium">Port</label>
-            <input
-              type="number"
-              value={port}
-              onChange={e => setPort(parseInt(e.target.value, 10) || 0)}
-              className="w-full border rounded px-3 py-2"
-              disabled={loadingConn}
-            />
-          </div>
-          {/** Database **/}
-          <div>
-            <label className="block font-medium">Database</label>
-            <input
-              type="text"
-              value={dbname}
-              onChange={e => setDbname(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              disabled={loadingConn}
-            />
-          </div>
-          {/** User **/}
-          <div>
-            <label className="block font-medium">User</label>
-            <input
-              type="text"
-              value={user}
-              onChange={e => setUser(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              disabled={loadingConn}
-            />
-          </div>
-          {/** Password **/}
-          <div>
-            <label className="block font-medium">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              disabled={loadingConn}
-            />
-          </div>
-          {/** Connect 按钮 **/}
-          <button
-            onClick={handleConnect}
-            disabled={loadingConn}
-            className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded disabled:opacity-50"
-          >
-            {loadingConn
-              ? '连接中…'
-              : connected
-              ? '已连接'
-              : '连接数据库'}
-          </button>
-        </div>
-        <p className="mt-4 text-sm text-gray-600">状态：{statusMsg}</p>
-      </div>
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white py-8">
+      <div className="container mx-auto max-w-md px-4">
+        {/* Toast 组件 */}
+        {toasts.map(toast => (
+          <Toast
+            key={toast.id}
+            message={toast.message}
+            type={toast.type}
+            isVisible={toast.isVisible}
+            onClose={() => removeToast(toast.id)}
+            position="bottom"
+          />
+        ))}
 
-      {/* 右侧：水印＆表列选择 */}
-      <div className="bg-white p-6 rounded-lg shadow-md">
-        <h2 className="text-2xl font-semibold mb-4">水印嵌入与提取</h2>
-
-        {/* 先选表 & 列 */}
-        {connected && (
-          <div className="space-y-4 mb-6">
-            <div>
-              <label className="block font-medium">选择表</label>
-              <select
-                value={table}
-                onChange={e => setTable(e.target.value)}
-                className="w-full border rounded px-3 py-2"
-              >
-                {tables.map(t => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </div>
-            
-            {/* 添加主键选择下拉框 */}
-            <div>
-              <label className="block font-medium">选择主键列</label>
-              <select
-                value={primaryKey}
-                onChange={e => setPrimaryKey(e.target.value)}
-                className="w-full border rounded px-3 py-2"
-              >
-                {primaryKeys.length === 0 ? (
-                  <option value="">该表无主键</option>
+        {/* 步骤指示器 */}
+        <div className="mb-8 flex flex-col items-center">
+          <div className="flex items-center space-x-4 mb-4">
+            {/* Step 1 */}
+            <div className="flex flex-col items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full text-sm font-medium transition-all duration-300 ease-in-out ${
+                stepCompleted
+                  ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-white animate-bounce-subtle' 
+                  : currentStep === 1
+                  ? 'bg-gradient-to-r from-teal-400 to-green-400 text-white animate-pulse-slow'
+                  : 'bg-gray-200 text-gray-600'
+              }`}>
+                {stepCompleted ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
                 ) : (
-                  primaryKeys.map(pk => (
-                    <option key={pk} value={pk}>{pk}</option>
-                  ))
+                  '1'
                 )}
-              </select>
+              </div>
+              <span className={`mt-2 text-xs font-medium transition-colors duration-150 ${
+                currentStep === 1 ? 'text-teal-600' : stepCompleted ? 'text-green-600' : 'text-gray-500'
+              }`}>
+                数据库连接
+              </span>
             </div>
-            
-            <div>
-              <label className="block font-medium">选择向量列</label>
-              <select
-                value={column}
-                onChange={e => setColumn(e.target.value)}
-                className="w-full border rounded px-3 py-2"
-              >
-                {columns.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+
+            {/* 连接线 */}
+            <div className="relative w-16 h-0.5 bg-gray-300 rounded-full overflow-hidden">
+              <div className={`absolute top-0 left-0 h-full bg-gradient-to-r from-teal-400 to-green-400 rounded-full transition-all duration-300 ease-in-out ${
+                currentStep >= 2 ? 'w-full animate-fill-line' : 'w-0'
+              }`}></div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="flex flex-col items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full text-sm font-medium transition-all duration-300 ease-in-out ${
+                currentStep >= 2 
+                  ? 'bg-gradient-to-r from-teal-400 to-green-400 text-white animate-pulse-slow' 
+                  : 'bg-gray-200 text-gray-600'
+              }`}>
+                2
+              </div>
+              <span className={`mt-2 text-xs font-medium transition-colors duration-150 ${
+                currentStep >= 2 ? 'text-teal-600' : 'text-gray-500'
+              }`}>
+                水印管理
+              </span>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* 嵌入水印区域 */}
-        <div className="space-y-3 pb-4 border-b">
-          <h3 className="font-semibold mb-2">嵌入水印</h3>
-          <div>
-            <label className="block font-medium">消息内容 (32字符)</label>
-            <textarea
-              rows={2}
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              disabled={!connected || !table || !column}
-              maxLength={32}
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              {message.length}/32 字符 {message.length !== 32 && message.length > 0 && "(需要恰好32个字符)"}
-            </p>
-          </div>
+        <div className="space-y-6">
+          {/* Step 1: 数据库连接 */}
+          {currentStep === 1 && (
+            <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out animate-slide-in-left">
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 bg-gradient-to-r from-teal-400 to-green-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
+                  </svg>
+                </div>
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">连接数据库</h2>
+                <p className="text-sm text-gray-600">请输入 PGVector 数据库连接信息</p>
+              </div>
 
-          {/* 嵌入按钮 */}
-          <button
-            onClick={handleEmbed}
-            disabled={!connected || !table || !primaryKey || !column || !message || message.length !== 32 || isEmbedding}
-            className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded disabled:opacity-50"
-          >
-            {isEmbedding ? '嵌入中...' : '嵌入水印并下载ID文件'}
-          </button>
-          
-          {/* 嵌入结果显示 */}
-          {embedResult && (
-            <div className="mt-2 p-3 bg-gray-100 rounded">
-              <h3 className="font-semibold mb-1">嵌入结果:</h3>
-              <p className="whitespace-pre-line">{embedResult}</p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">主机地址</label>
+                  <input
+                    type="text"
+                    value={ip}
+                    onChange={e => {
+                      setIp(e.target.value);
+                      if (formErrors.ip) setFormErrors(prev => ({ ...prev, ip: null }));
+                    }}
+                    className={`w-full px-3 py-2 border rounded-lg transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-300 ${
+                      formErrors.ip ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-teal-400'
+                    }`}
+                    disabled={loadingConn}
+                    placeholder="localhost"
+                  />
+                  {formErrors.ip && (
+                    <p className="mt-1 text-sm text-red-600 flex items-center animate-scale-in">
+                      <svg className="w-4 h-4 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {formErrors.ip}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">端口</label>
+                  <input
+                    type="number"
+                    value={port}
+                    onChange={e => {
+                      setPort(parseInt(e.target.value, 10) || 0);
+                      if (formErrors.port) setFormErrors(prev => ({ ...prev, port: null }));
+                    }}
+                    className={`w-full px-3 py-2 border rounded-lg transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-300 ${
+                      formErrors.port ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-teal-400'
+                    }`}
+                    disabled={loadingConn}
+                    placeholder="5432"
+                  />
+                  {formErrors.port && (
+                    <p className="mt-1 text-sm text-red-600 flex items-center animate-scale-in">
+                      <svg className="w-4 h-4 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {formErrors.port}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">数据库名称</label>
+                  <input
+                    type="text"
+                    value={dbname}
+                    onChange={e => {
+                      setDbname(e.target.value);
+                      if (formErrors.dbname) setFormErrors(prev => ({ ...prev, dbname: null }));
+                    }}
+                    className={`w-full px-3 py-2 border rounded-lg transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-300 ${
+                      formErrors.dbname ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-teal-400'
+                    }`}
+                    disabled={loadingConn}
+                    placeholder="test"
+                  />
+                  {formErrors.dbname && (
+                    <p className="mt-1 text-sm text-red-600 flex items-center animate-scale-in">
+                      <svg className="w-4 h-4 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {formErrors.dbname}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+                  <input
+                    type="text"
+                    value={user}
+                    onChange={e => {
+                      setUser(e.target.value);
+                      if (formErrors.user) setFormErrors(prev => ({ ...prev, user: null }));
+                    }}
+                    className={`w-full px-3 py-2 border rounded-lg transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-300 ${
+                      formErrors.user ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-teal-400'
+                    }`}
+                    disabled={loadingConn}
+                    placeholder="postgres"
+                  />
+                  {formErrors.user && (
+                    <p className="mt-1 text-sm text-red-600 flex items-center animate-scale-in">
+                      <svg className="w-4 h-4 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {formErrors.user}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-300 transition-all duration-150 ease-in-out"
+                    disabled={loadingConn}
+                    placeholder="输入数据库密码"
+                  />
+                </div>
+
+                <button
+                  onClick={handleConnect}
+                  disabled={loadingConn}
+                  className="w-full bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
+                  style={{borderRadius: '0.5rem'}}
+                >
+                  {loadingConn ? (
+                    <div className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      连接中...
+                    </div>
+                  ) : (
+                    '连接数据库'
+                  )}
+                </button>
+
+                {/* 连接状态 */}
+                {statusMsg !== '未连接' && (
+                  <div className={`p-3 rounded-lg transition-all duration-150 ease-in-out animate-scale-in ${
+                    connected 
+                      ? 'bg-green-50 border border-green-200' 
+                      : 'bg-red-50 border border-red-200'
+                  }`}>
+                    <div className="flex items-center">
+                      <div className={`w-2 h-2 rounded-full mr-2 ${
+                        connected ? 'bg-green-500 animate-pulse-slow' : 'bg-red-500'
+                      }`}></div>
+                      <span className={`text-sm ${
+                        connected ? 'text-green-700' : 'text-red-700'
+                      }`}>
+                        {statusMsg}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
-        </div>
-          
-        {/* 水印提取区域 */}
-        <div className="mt-4 pt-2">
-          <h3 className="font-semibold mb-3">水印提取</h3>
-          
-          {/* 文件上传区域 */}
-          <div className="mb-3 border rounded-lg p-3 bg-gray-50">
-            <div className="flex items-center justify-between">
-              <label className="block font-medium mb-2">上传ID文件:</label>
-              {selectedFile && (
-                <button
-                  onClick={clearFileSelection}
-                  className="text-red-600 hover:text-red-800 text-sm"
-                >
-                  清除
-                </button>
-              )}
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept=".json"
-                className="block w-full text-sm text-gray-500
-                  file:mr-4 file:py-2 file:px-4
-                  file:rounded file:border-0
-                  file:text-sm file:font-semibold
-                  file:bg-purple-50 file:text-purple-700
-                  hover:file:bg-purple-100"
-              />
-            </div>
-            
-            {fileName && (
-              <p className="mt-1 text-sm text-gray-600">
-                已选择: {fileName}
-              </p>
-            )}
 
-            <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
-              提示：请上传之前嵌入水印时下载的ID文件（JSON格式）
-            </div>
-          </div>
-          
-          {/* 提取按钮 */}
-          <button
-            onClick={handleExtract}
-            disabled={!connected || !table || !primaryKey || !column || isExtracting || !selectedFile}
-            className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded disabled:opacity-50"
-          >
-            {isExtracting ? '提取中...' : '提取水印'}
-          </button>
+          {/* Step 2: 水印操作 */}
+          {currentStep === 2 && (
+            <div className="space-y-6 animate-slide-in-right">
+              {/* 返回按钮 */}
+              <button
+                onClick={goBack}
+                className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors duration-150 ease-in-out"
+              >
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                返回连接设置
+              </button>
 
-          {/* 提取结果显示 */}
-          {extractResult && (
-            <div className="mt-3 p-3 bg-gray-100 rounded">
-              <h3 className="font-semibold mb-1">提取结果:</h3>
-              <p>{extractResult}</p>
+              {/* 表和列选择 */}
+              <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <svg className="w-5 h-5 text-teal-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
+                  </svg>
+                  数据库配置
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">选择数据表</label>
+                    <Combobox
+                      options={tables}
+                      value={table}
+                      onChange={setTable}
+                      placeholder="搜索并选择数据表"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">选择主键列</label>
+                    <Combobox
+                      options={primaryKeys}
+                      value={primaryKey}
+                      onChange={setPrimaryKey}
+                      placeholder="搜索并选择主键列"
+                      error={primaryKeys.length === 0 ? "该表无主键" : null}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">选择向量列</label>
+                    <Combobox
+                      options={columns}
+                      value={column}
+                      onChange={setColumn}
+                      placeholder="搜索并选择向量列"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Tab 切换和操作 */}
+              <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
+                {/* Pills 切换 */}
+                <div className="flex bg-gray-100 p-1 rounded-xl mb-6">
+                  <button
+                    onClick={() => setActiveTab('embed')}
+                    className={`flex-1 flex items-center justify-center py-2 px-4 text-sm font-medium rounded-lg transition-all duration-150 ease-in-out ${
+                      activeTab === 'embed'
+                        ? 'bg-gradient-to-r from-teal-400 to-green-400 text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-800 hover:bg-gray-200'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    嵌入水印
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('extract')}
+                    className={`flex-1 flex items-center justify-center py-2 px-4 text-sm font-medium rounded-lg transition-all duration-150 ease-in-out ${
+                      activeTab === 'extract'
+                        ? 'bg-gradient-to-r from-teal-400 to-green-400 text-white shadow-sm'
+                        : 'text-gray-600 hover:text-gray-800 hover:bg-gray-200'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    提取水印
+                  </button>
+                </div>
+
+                {/* 嵌入水印 Tab */}
+                {activeTab === 'embed' && (
+                  <div className="space-y-4 animate-fade-in">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">水印消息 (32字符)</label>
+                      <textarea
+                        rows={3}
+                        value={message}
+                        onChange={e => setMessage(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-300 transition-all duration-150 ease-in-out resize-none"
+                        disabled={!connected || !table || !column}
+                        maxLength={32}
+                        placeholder="输入32个字符的水印消息"
+                      />
+                      <div className="mt-1 flex justify-between items-center text-xs">
+                        <span className={`transition-colors duration-150 ${
+                          message.length === 32 ? 'text-teal-600 font-medium' : 'text-gray-500'
+                        }`}>
+                          {message.length}/32 字符
+                        </span>
+                        {message.length !== 32 && message.length > 0 && (
+                          <span className="text-amber-600 flex items-center animate-scale-in">
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                            </svg>
+                            需要恰好32个字符
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleEmbed}
+                      disabled={!connected || !table || !primaryKey || !column || !message || message.length !== 32 || isEmbedding}
+                      className="w-full bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
+                      style={{borderRadius: '0.5rem'}}
+                    >
+                      {isEmbedding ? (
+                        <div className="flex items-center justify-center">
+                          <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          嵌入中...
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center">
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4V4" />
+                          </svg>
+                          嵌入水印并下载ID文件
+                        </div>
+                      )}
+                    </button>
+                    
+                    {embedResult && (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-lg animate-scale-in">
+                        <div className="flex items-start">
+                          <svg className="w-5 h-5 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <div>
+                            <h4 className="font-medium text-green-800 mb-1">嵌入结果</h4>
+                            <p className="text-green-700 text-sm whitespace-pre-line">{embedResult}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 提取水印 Tab */}
+                {activeTab === 'extract' && (
+                  <div className="space-y-4 animate-fade-in">
+                    {/* 文件上传区域 */}
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-all duration-150 ease-in-out">
+                      <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <div className="mt-4">
+                        <label htmlFor="file-upload" className="cursor-pointer">
+                          <span className="mt-2 block text-sm font-medium text-gray-700">
+                            {fileName ? fileName : '点击选择ID文件'}
+                          </span>
+                          <span className="mt-1 block text-xs text-gray-500">
+                            支持JSON格式文件
+                          </span>
+                        </label>
+                        <input
+                          id="file-upload"
+                          ref={fileInputRef}
+                          type="file"
+                          className="sr-only"
+                          onChange={handleFileChange}
+                          accept=".json"
+                        />
+                      </div>
+                      {selectedFile && (
+                        <button
+                          onClick={clearFileSelection}
+                          className="mt-2 text-red-600 hover:text-red-800 text-sm font-medium transition-colors duration-150 ease-in-out"
+                        >
+                          清除选择
+                        </button>
+                      )}
+                    </div>
+                    
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={handleExtract}
+                        disabled={!connected || !table || !primaryKey || !column || isExtracting || !selectedFile}
+                        className="flex-1 bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
+                        style={{borderRadius: '0.5rem'}}
+                      >
+                        {isExtracting ? (
+                          <div className="flex items-center justify-center">
+                            <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            提取中...
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center">
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4V4" />
+                            </svg>
+                            提取水印
+                          </div>
+                        )}
+                      </button>
+                      <button
+                        onClick={clearFileSelection}
+                        disabled={!selectedFile}
+                        className="px-4 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed"
+                        style={{borderRadius: '0.5rem'}}
+                      >
+                        清除
+                      </button>
+                    </div>
+
+                    {extractResult && (
+                      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg animate-scale-in">
+                        <div className="flex items-start">
+                          <svg className="w-5 h-5 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <div>
+                            <h4 className="font-medium text-blue-800 mb-1">提取结果</h4>
+                            <p className="text-blue-700 text-sm">{extractResult}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
