@@ -1,7 +1,3 @@
-"""
-vector_watermark.py - 向量水印编码/解码实现
-"""
-
 import torch
 import torch.nn.functional as F
 import numpy as np

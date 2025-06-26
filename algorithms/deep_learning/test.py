@@ -1,7 +1,3 @@
-"""
-向量水印性能测试脚本 - 评估嵌入质量、提取准确率、抗噪声能力和时间效率
-"""
-
 import os
 import time
 import argparse

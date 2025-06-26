@@ -1,14 +1,3 @@
-# ──────────────────────────────────────────────────────────────
-# file: vector_model/vnoise_layers.py
-# ──────────────────────────────────────────────────────────────
-"""
-可微向量失真算子 (vector-domain noise layers)
-
-每个类都实现:
-    forward(x):  x.shape == (B, d)  →  same shape
-并且在 __all__ 中暴露，供噪声字符串解析器自动注册。
-"""
-
 from __future__ import annotations
 import math
 import torch

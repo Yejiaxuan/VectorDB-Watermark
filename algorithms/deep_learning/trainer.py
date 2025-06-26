@@ -1,7 +1,3 @@
-"""
-train_vector.py  –  向量隐写训练 + 训练/验证曲线
-"""
-
 import os, math, argparse, random,sys
 from pathlib import Path
 from multiprocessing import freeze_support
