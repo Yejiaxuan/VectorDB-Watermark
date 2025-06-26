@@ -3,11 +3,9 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from fastapi import FastAPI, HTTPException, Query, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from typing import Dict, Any, Optional
 import json
-from .models import DBParams
-from database.pgvector.client import PGVectorManager  # 导入PGVector管理器
+from .models import DBParams, WatermarkEmbedRequest
+from database.pgvector.client import PGVectorManager
 
 app = FastAPI()
 app.add_middleware(
@@ -70,16 +68,6 @@ async def list_primary_keys(
         return {"keys": result["keys"]}
     else:
         raise HTTPException(status_code=400, detail=result["error"])
-
-
-# 水印嵌入请求模型
-class WatermarkEmbedRequest(BaseModel):
-    db_params: Dict[str, Any]  # 数据库连接参数
-    table: str  # 表名
-    id_column: str  # 主键列名
-    vector_column: str  # 向量列名
-    message: str  # 水印消息
-    total_vecs: int = 1600  # 使用的向量数量，默认1600
 
 
 @app.post("/api/embed_watermark")
