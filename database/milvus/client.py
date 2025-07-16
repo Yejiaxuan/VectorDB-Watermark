@@ -151,17 +151,17 @@ class MilvusManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def embed_watermark_with_file(
+    def embed_watermark_without_file(
             self,
             db_params: Dict[str, Any],
             collection_name: str,
             id_field: str,
             vector_field: str,
             message: str,
-            total_vecs: int = 1600
+            embed_rate: float = 0.1
     ) -> Dict[str, Any]:
         """
-        在指定集合的向量字段中嵌入水印，并生成唯一ID文件
+        在指定集合的向量字段中嵌入水印，不生成ID文件
         
         Args:
             db_params: 数据库连接参数
@@ -169,7 +169,48 @@ class MilvusManager:
             id_field: 主键字段名
             vector_field: 向量字段名
             message: 水印消息
-            total_vecs: 使用的向量数量，默认1600
+            embed_rate: 水印嵌入率，默认10%
+            
+        Returns:
+            嵌入结果字典
+        """
+        try:
+            # 调用水印嵌入函数（不生成ID文件）
+            result = embed_watermark(
+                db_params=db_params,
+                collection_name=collection_name,
+                id_field=id_field,
+                vector_field=vector_field,
+                message=message,
+                embed_rate=embed_rate,
+                ids_file=None  # 不生成ID文件
+            )
+
+            return result
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def embed_watermark_with_file(
+            self,
+            db_params: Dict[str, Any],
+            collection_name: str,
+            id_field: str,
+            vector_field: str,
+            message: str,
+            embed_rate: float = 0.1,
+            total_vecs: int = 1600
+    ) -> Dict[str, Any]:
+        """
+        在指定集合的向量字段中嵌入水印，并生成唯一ID文件（保留用于向后兼容）
+        
+        Args:
+            db_params: 数据库连接参数
+            collection_name: 集合名
+            id_field: 主键字段名
+            vector_field: 向量字段名
+            message: 水印消息
+            embed_rate: 水印嵌入率，默认10%
+            total_vecs: 使用的向量数量，默认1600（已弃用）
             
         Returns:
             嵌入结果字典
@@ -187,6 +228,7 @@ class MilvusManager:
                 id_field=id_field,
                 vector_field=vector_field,
                 message=message,
+                embed_rate=embed_rate,
                 total_vecs=total_vecs,
                 ids_file=ids_file
             )
@@ -204,6 +246,42 @@ class MilvusManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def extract_watermark_without_file(
+            self,
+            db_params: Dict[str, Any],
+            collection_name: str,
+            id_field: str,
+            vector_field: str,
+            embed_rate: float = 0.1
+    ) -> Dict[str, Any]:
+        """
+        从指定集合的向量字段中提取水印，重新计算低入度节点
+        
+        Args:
+            db_params: 数据库连接参数
+            collection_name: 集合名
+            id_field: 主键字段名
+            vector_field: 向量字段名
+            embed_rate: 水印嵌入率，默认10%
+            
+        Returns:
+            提取结果字典
+        """
+        try:
+            # 调用水印提取函数（重新计算低入度节点）
+            result = extract_watermark(
+                db_params=db_params,
+                collection_name=collection_name,
+                id_field=id_field,
+                vector_field=vector_field,
+                embed_rate=embed_rate,
+                ids_file=None  # 不使用ID文件
+            )
+
+            return result
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def extract_watermark_with_uploaded_file(
             self,
             db_params: Dict[str, Any],
@@ -213,7 +291,7 @@ class MilvusManager:
             file_content: bytes
     ) -> Dict[str, Any]:
         """
-        从指定集合的向量字段中提取水印，使用上传的ID文件
+        从指定集合的向量字段中提取水印，使用上传的ID文件（保留用于向后兼容）
         
         Args:
             db_params: 数据库连接参数

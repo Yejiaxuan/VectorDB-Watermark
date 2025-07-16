@@ -41,6 +41,8 @@ export default function PgvectorPage() {
 
   // —— 水印操作状态 ——  
   const [message, setMessage] = useState('ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEF');
+  const [embedRate, setEmbedRate] = useState(0.1); // 默认10%嵌入率
+  const [lastEmbedRate, setLastEmbedRate] = useState(null); // 记录上次成功嵌入时使用的嵌入率
   const [embedResult, setEmbedResult] = useState('');
   const [extractResult, setExtractResult] = useState('');
   const [isEmbedding, setIsEmbedding] = useState(false);
@@ -163,18 +165,12 @@ export default function PgvectorPage() {
     
     try {
       const dbParams = { host: ip, port, dbname, user, password };
-      const result = await embedWatermark(dbParams, table, primaryKey, column, message);
+      const result = await embedWatermark(dbParams, table, primaryKey, column, message, embedRate);
       
-      setEmbedResult(`${result.message}。ID文件已自动下载，请妥善保存用于提取水印。`);
-      showToast('水印嵌入成功！ID文件已下载', 'success');
+      setEmbedResult(`${result.message}\n\n💡 提示：提取水印时请使用相同的嵌入率 ${(embedRate * 100).toFixed(1)}% 以确保正确提取。`);
+      setLastEmbedRate(embedRate); // 记录成功嵌入时使用的嵌入率
+      showToast(`水印嵌入成功！使用了 ${(embedRate * 100).toFixed(1)}% 的嵌入率`, 'success');
       
-      if (result.file_id) {
-        setFileId(result.file_id);
-      }
-      
-      if (result.downloadWarning) {
-        showToast(result.downloadWarning, 'warning');
-      }
     } catch (error) {
       setEmbedResult(`错误: ${error.message}`);
       showToast(`嵌入失败：${error.message}`, 'error');
@@ -192,12 +188,12 @@ export default function PgvectorPage() {
     
     try {
       const dbParams = { host: ip, port, dbname, user, password };
-      const result = await extractWatermark(dbParams, table, primaryKey, column);
+      const result = await extractWatermark(dbParams, table, primaryKey, column, embedRate);
       
       if (result.success) {
         const stats = result.stats ? ` (有效解码: ${result.valid_decodes}/${result.total_decodes})` : '';
         setExtractResult(`提取成功：${result.message} (恢复 ${result.recovered}/${result.blocks} 个区块)${stats}`);
-        showToast(`水印提取成功！恢复 ${result.recovered}/${result.blocks} 个区块`, 'success');
+        showToast('水印提取成功！', 'success');
       } else {
         setExtractResult(`提取失败：${result.error}`);
         showToast(`提取失败：${result.error}`, 'error');
@@ -565,11 +561,37 @@ export default function PgvectorPage() {
                         {message.length !== 32 && message.length > 0 && (
                           <span className="text-amber-600 flex items-center animate-scale-in">
                             <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.734 0l-7.92 13.5c-.77.833-.192 2.5 1.732 2.5z" />
                             </svg>
                             需要恰好32个字符
                           </span>
                         )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">水印嵌入率</label>
+                      <div className="space-y-2">
+                        <input
+                          type="range"
+                          min="0.01"
+                          max="1"
+                          step="0.01"
+                          value={embedRate}
+                          onChange={e => setEmbedRate(parseFloat(e.target.value))}
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                          disabled={!connected || !table || !column}
+                        />
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-gray-500">1%</span>
+                          <span className="text-teal-600 font-medium bg-teal-50 px-2 py-1 rounded">
+                            {(embedRate * 100).toFixed(1)}%
+                          </span>
+                          <span className="text-gray-500">100%</span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          控制用于嵌入水印的向量比例，推荐使用10-20%
+                        </p>
                       </div>
                     </div>
 
@@ -616,6 +638,76 @@ export default function PgvectorPage() {
                 {/* 提取水印 Tab */}
                 {activeTab === 'extract' && (
                   <div className="space-y-4 animate-fade-in">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">水印嵌入率</label>
+                      <div className="space-y-2">
+                        <input
+                          type="range"
+                          min="0.01"
+                          max="1"
+                          step="0.01"
+                          value={embedRate}
+                          onChange={e => setEmbedRate(parseFloat(e.target.value))}
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                          disabled={!connected || !table || !column}
+                        />
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-gray-500">1%</span>
+                          <span className="text-blue-600 font-medium bg-blue-50 px-2 py-1 rounded">
+                            {(embedRate * 100).toFixed(1)}%
+                          </span>
+                          <span className="text-gray-500">100%</span>
+                        </div>
+                        <div className={`rounded-lg p-3 ${
+                          lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
+                            ? 'bg-red-50 border border-red-200'
+                            : 'bg-amber-50 border border-amber-200'
+                        }`}>
+                          <div className="flex items-start">
+                            <svg className={`w-4 h-4 mr-2 mt-0.5 flex-shrink-0 ${
+                              lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
+                                ? 'text-red-500'
+                                : 'text-amber-500'
+                            }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.734 0l-7.92 13.5c-.77.833-.192 2.5 1.732 2.5z" />
+                            </svg>
+                            <div>
+                              <p className={`text-xs font-medium mb-1 ${
+                                lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
+                                  ? 'text-red-700'
+                                  : 'text-amber-700'
+                              }`}>
+                                {lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
+                                  ? '⚠️ 嵌入率不匹配'
+                                  : '重要提示'
+                                }
+                              </p>
+                              <p className={`text-xs ${
+                                lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
+                                  ? 'text-red-600'
+                                  : 'text-amber-600'
+                              }`}>
+                                {lastEmbedRate !== null 
+                                  ? Math.abs(embedRate - lastEmbedRate) > 0.001
+                                    ? `当前嵌入率 ${(embedRate * 100).toFixed(1)}% 与上次成功嵌入时的 ${(lastEmbedRate * 100).toFixed(1)}% 不一致，可能无法正确提取水印。`
+                                    : `当前嵌入率 ${(embedRate * 100).toFixed(1)}% 与上次成功嵌入时保持一致，可以正确提取水印。`
+                                  : '提取时的嵌入率应与嵌入水印时使用的嵌入率保持一致，才能正确提取水印信息。'
+                                }
+                              </p>
+                              {lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001 && (
+                                <button
+                                  onClick={() => setEmbedRate(lastEmbedRate)}
+                                  className="mt-2 text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded transition-colors duration-150"
+                                >
+                                  恢复到 {(lastEmbedRate * 100).toFixed(1)}%
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* 提取操作区域 */}
                     <div className="bg-gray-50 rounded-lg p-6 text-center border border-gray-200">
                       <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -623,7 +715,7 @@ export default function PgvectorPage() {
                       </svg>
                       <h3 className="text-lg font-medium text-gray-700 mb-2">提取水印</h3>
                       <p className="text-sm text-gray-500 mb-6">
-                        系统将自动分析向量数据并提取嵌入的水印信息
+                        系统将使用 <span className="font-medium text-blue-600">{(embedRate * 100).toFixed(1)}%</span> 的嵌入率分析向量数据并提取水印信息
                       </p>
                       
                       <button

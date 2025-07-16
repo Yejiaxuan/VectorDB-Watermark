@@ -78,9 +78,10 @@ export async function fetchPrimaryKeys(dbParams, table) {
  * @param {string} idColumn 主键列名
  * @param {string} vectorColumn 向量列名
  * @param {string} message 水印消息
+ * @param {number} embedRate 水印嵌入率（0-1之间的浮点数），默认0.1（10%）
  * @returns {Promise<{success: boolean, message: string, updated: number}>} 结果
  */
-export async function embedWatermark(dbParams, table, idColumn, vectorColumn, message) {
+export async function embedWatermark(dbParams, table, idColumn, vectorColumn, message, embedRate = 0.1) {
   const res = await fetch('/api/embed_watermark', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -90,7 +91,8 @@ export async function embedWatermark(dbParams, table, idColumn, vectorColumn, me
       id_column: idColumn,
       vector_column: vectorColumn,
       message,
-      total_vecs: 1600  // 默认使用的向量数量
+      embed_rate: embedRate,
+      total_vecs: 1600  // 保留兼容性，但现在主要使用embed_rate
     }),
   });
   
@@ -151,9 +153,10 @@ export async function downloadIdsFileById(fileId, table, vectorColumn) {
  * @param {string} table 表名
  * @param {string} idColumn 主键列名
  * @param {string} vectorColumn 向量列名
+ * @param {number} embedRate 水印嵌入率（0-1之间的浮点数），默认0.1（10%）
  * @returns {Promise<{success: boolean, message: string, blocks: number, recovered: number}>} 结果
  */
-export async function extractWatermark(dbParams, table, idColumn, vectorColumn) {
+export async function extractWatermark(dbParams, table, idColumn, vectorColumn, embedRate = 0.1) {
   const res = await fetch('/api/extract-watermark', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -161,7 +164,8 @@ export async function extractWatermark(dbParams, table, idColumn, vectorColumn) 
       db_params: dbParams,
       table,
       id_column: idColumn,
-      vector_column: vectorColumn
+      vector_column: vectorColumn,
+      embed_rate: embedRate
     })
   });
   
@@ -290,15 +294,16 @@ export async function fetchMilvusPrimaryKeys(dbParams, collectionName) {
 }
 
 /**
- * 在指定Milvus集合的向量字段中嵌入水印并自动下载ID文件
+ * 在指定Milvus集合的向量字段中嵌入水印
  * @param {{host: string, port: number}} dbParams Milvus连接参数
  * @param {string} collectionName 集合名
  * @param {string} idField 主键字段名
  * @param {string} vectorField 向量字段名
  * @param {string} message 水印消息
- * @returns {Promise<{success: boolean, message: string, updated: number, file_id: string}>} 结果
+ * @param {number} embedRate 水印嵌入率（0-1之间的浮点数），默认0.1（10%）
+ * @returns {Promise<{success: boolean, message: string, updated: number}>} 结果
  */
-export async function embedMilvusWatermark(dbParams, collectionName, idField, vectorField, message) {
+export async function embedMilvusWatermark(dbParams, collectionName, idField, vectorField, message, embedRate = 0.1) {
   const res = await fetch('/api/milvus/embed_watermark', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -308,7 +313,41 @@ export async function embedMilvusWatermark(dbParams, collectionName, idField, ve
       id_field: idField,
       vector_field: vectorField,
       message,
-      total_vecs: 1600  // 默认使用的向量数量
+      embed_rate: embedRate,
+      total_vecs: 1600  // 保留兼容性
+    }),
+  });
+  
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Milvus水印嵌入失败');
+  }
+  
+  return res.json();
+}
+
+/**
+ * 在指定Milvus集合的向量字段中嵌入水印并自动下载ID文件（保留用于向后兼容）
+ * @param {{host: string, port: number}} dbParams Milvus连接参数
+ * @param {string} collectionName 集合名
+ * @param {string} idField 主键字段名
+ * @param {string} vectorField 向量字段名
+ * @param {string} message 水印消息
+ * @param {number} embedRate 水印嵌入率（0-1之间的浮点数），默认0.1（10%）
+ * @returns {Promise<{success: boolean, message: string, updated: number, file_id: string}>} 结果
+ */
+export async function embedMilvusWatermarkWithFile(dbParams, collectionName, idField, vectorField, message, embedRate = 0.1) {
+  const res = await fetch('/api/milvus/embed_watermark_with_file', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      db_params: dbParams,
+      collection_name: collectionName,
+      id_field: idField,
+      vector_field: vectorField,
+      message,
+      embed_rate: embedRate,
+      total_vecs: 1600  // 保留兼容性
     }),
   });
   
@@ -377,7 +416,37 @@ export async function downloadMilvusIdsFileById(fileId, collectionName, vectorFi
 }
 
 /**
- * 使用上传的ID文件从Milvus提取水印
+ * 从Milvus提取水印，重新计算低入度节点
+ * @param {{host: string, port: number}} dbParams Milvus连接参数
+ * @param {string} collectionName 集合名
+ * @param {string} idField 主键字段名
+ * @param {string} vectorField 向量字段名
+ * @param {number} embedRate 水印嵌入率（0-1之间的浮点数），默认0.1（10%）
+ * @returns {Promise<{success: boolean, message: string, blocks: number, recovered: number}>} 结果
+ */
+export async function extractMilvusWatermark(dbParams, collectionName, idField, vectorField, embedRate = 0.1) {
+  const res = await fetch('/api/milvus/extract_watermark', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      db_params: dbParams,
+      collection_name: collectionName,
+      id_field: idField,
+      vector_field: vectorField,
+      embed_rate: embedRate
+    })
+  });
+  
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Milvus水印提取失败');
+  }
+  
+  return res.json();
+}
+
+/**
+ * 使用上传的ID文件从Milvus提取水印（保留用于向后兼容）
  * @param {{host: string, port: number}} dbParams Milvus连接参数
  * @param {string} collectionName 集合名
  * @param {string} idField 主键字段名

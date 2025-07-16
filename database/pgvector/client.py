@@ -151,6 +151,7 @@ class PGVectorManager:
             id_column: str,
             vector_column: str,
             message: str,
+            embed_rate: float = 0.1,
             total_vecs: int = 1600
     ) -> Dict[str, Any]:
         """
@@ -162,7 +163,8 @@ class PGVectorManager:
             id_column: 主键列名
             vector_column: 向量列名
             message: 水印消息
-            total_vecs: 使用的向量数量，默认1600
+            embed_rate: 水印嵌入率（0-1之间的浮点数），默认10%
+            total_vecs: 使用的向量数量，默认1600（已弃用，保留兼容性）
             
         Returns:
             嵌入结果字典
@@ -175,7 +177,7 @@ class PGVectorManager:
                 id_col=id_column,
                 emb_col=vector_column,
                 message=message,
-                total_vecs=total_vecs
+                embed_rate=embed_rate
             )
 
             return result
@@ -187,7 +189,8 @@ class PGVectorManager:
             db_params: Dict[str, Any],
             table: str,
             id_column: str,
-            vector_column: str
+            vector_column: str,
+            embed_rate: float = 0.1
     ) -> Dict[str, Any]:
         """
         从指定表的向量列中提取水印，重新计算低入度节点
@@ -197,6 +200,7 @@ class PGVectorManager:
             table: 表名
             id_column: 主键列名
             vector_column: 向量列名
+            embed_rate: 水印嵌入率（0-1之间的浮点数），默认10%
             
         Returns:
             提取结果字典
@@ -207,7 +211,8 @@ class PGVectorManager:
                 db_params=db_params,
                 table_name=table,
                 id_col=id_column,
-                emb_col=vector_column
+                emb_col=vector_column,
+                embed_rate=embed_rate
             )
 
             return result

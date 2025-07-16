@@ -28,8 +28,8 @@ MODEL_PATH = os.getenv('WM_MODEL_PATH', os.path.join(os.path.dirname(os.path.dir
 MSG_LEN = 24  # 4 idx + 4 CRC + 16 payload
 BLOCK_PAYLOAD = 16  # 每块载荷比特数
 BLOCK_COUNT = 16  # 块数量
-TOTAL_VECS = 1600  # 默认使用的向量数量
-MAX_IN_DEGREE = 5
+TOTAL_VECS = 1600  # 默认使用的向量数量（已弃用，现使用embed_rate）
+DEFAULT_EMBED_RATE = 0.1  # 默认水印嵌入率10%
 # ————————————— #
 
 
@@ -119,12 +119,40 @@ def compute_in_degrees(idx, ids: list):
     return {dbid: int(cnts[i]) for i, dbid in enumerate(ids)}
 
 
+def select_low_degree_ids_by_rate(ids: list, in_degs: dict, embed_rate: float):
+    """
+    按水印嵌入率从低入度向量中选择指定数量的向量ID
+    
+    Args:
+        ids: 所有向量ID列表
+        in_degs: 每个ID的入度字典
+        embed_rate: 水印嵌入率（0-1之间的浮点数）
+        
+    Returns:
+        选中的向量ID列表，按入度从低到高排序
+    """
+    # 计算需要选择的向量数量
+    target_count = int(len(ids) * embed_rate)
+    if target_count < BLOCK_COUNT:
+        # 如果目标数量少于块数，至少保证有足够的向量
+        target_count = BLOCK_COUNT
+    
+    # 按入度排序所有向量（入度相同时按ID排序确保稳定性）
+    sorted_pairs = sorted([(id_, in_degs[id_]) for id_ in ids], key=lambda x: (x[1], x[0]))
+    
+    # 选择前target_count个向量
+    selected = [pid for pid, _ in sorted_pairs[:target_count]]
+    
+    return selected
+
+
 def select_low_degree_ids(ids: list, in_degs: dict, k=None):
     """
-    选择入度≤MAX_IN_DEGREE的向量ID
+    选择入度≤指定阈值的向量ID（保留旧接口以保持兼容性）
     """
-    # 过滤所有入度小于等于2的向量
-    filtered = [(id_, deg) for id_, deg in in_degs.items() if deg <= MAX_IN_DEGREE]
+    # 兼容旧版本的固定阈值方式，这里设置一个较大的默认值
+    max_degree = k if k is not None else 10
+    filtered = [(id_, deg) for id_, deg in in_degs.items() if deg <= max_degree]
     # 确保结果稳定：入度相同时按ID排序
     pairs = sorted(filtered, key=lambda x: (x[1], x[0]))
     return [pid for pid, _ in pairs]
@@ -259,13 +287,30 @@ def backup_vectors(db_params, table_name, id_col, emb_col, low_ids, file_path='o
     return len(backup_data)
 
 
-def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=TOTAL_VECS, ids_file=None):
+def embed_watermark(db_params, table_name, id_col, emb_col, message, embed_rate=None, total_vecs=None, ids_file=None):
     """
-    嵌入水印流程 - 使用入度≤MAX_IN_DEGREE的向量，不保存ID文件
+    嵌入水印流程 - 使用指定嵌入率选择低入度向量，不保存ID文件
+    
+    Args:
+        db_params: 数据库连接参数
+        table_name: 表名
+        id_col: 主键列名
+        emb_col: 向量列名
+        message: 水印消息
+        embed_rate: 水印嵌入率（0-1之间的浮点数），优先使用此参数
+        total_vecs: 使用的向量数量（已弃用，保留兼容性）
+        ids_file: ID文件路径（已弃用，保留兼容性）
     """
     # 检查消息长度
     if len(message) != BLOCK_COUNT * 2:
         return {"success": False, "error": f"消息长度必须为 {BLOCK_COUNT * 2} 字符"}
+
+    # 确定嵌入率
+    if embed_rate is None:
+        embed_rate = DEFAULT_EMBED_RATE
+    
+    if not (0 < embed_rate <= 1):
+        return {"success": False, "error": "水印嵌入率必须在0和1之间"}
 
     # 1) 分块消息数据
     chunks = partition_message(message)
@@ -281,14 +326,14 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=
         idx = build_hnsw_index(data.copy())
         in_deg = compute_in_degrees(idx, ids)
 
-        # 选择所有入度≤MAX_IN_DEGREE的向量
-        low_ids = select_low_degree_ids(ids, in_deg)
+        # 按嵌入率选择低入度向量
+        low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate)
 
         # 如果选出的向量太少，返回错误
         if len(low_ids) < BLOCK_COUNT:
             return {
                 "success": False,
-                "error": f"入度≤{MAX_IN_DEGREE}的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
+                "error": f"按{embed_rate:.1%}嵌入率选择的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
             }
 
     except Exception as e:
@@ -299,21 +344,41 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=
         wm = VectorWatermark(vec_dim=DIM, msg_len=MSG_LEN, model_path=MODEL_PATH)
         updated = embed_into_db(low_ids, data, chunks, wm, db_params, table_name, id_col, emb_col)
 
+        # 计算实际嵌入率
+        actual_rate = len(low_ids) / len(ids)
+
         # 返回嵌入结果，不包含文件信息
         return {
             "success": True,
-            "message": f"水印嵌入完成，使用了{len(low_ids)}个入度≤{MAX_IN_DEGREE}的向量，更新了{updated}个向量",
+            "message": f"水印嵌入完成，嵌入率{actual_rate:.1%}({len(low_ids)}/{len(ids)})，更新了{updated}个向量",
             "updated": updated,
-            "used_vectors": len(low_ids)
+            "used_vectors": len(low_ids),
+            "total_vectors": len(ids),
+            "embed_rate": actual_rate
         }
     except Exception as e:
         return {"success": False, "error": f"嵌入水印失败: {str(e)}"}
 
 
-def extract_watermark(db_params, table_name, id_col, emb_col, ids_file=None):
+def extract_watermark(db_params, table_name, id_col, emb_col, embed_rate=None, ids_file=None):
     """
     提取水印流程 - 重新计算低入度节点并使用纯统计方法
+    
+    Args:
+        db_params: 数据库连接参数
+        table_name: 表名
+        id_col: 主键列名
+        emb_col: 向量列名
+        embed_rate: 水印嵌入率（0-1之间的浮点数），如果提供则使用此参数重新计算
+        ids_file: ID文件路径（已弃用，保留兼容性）
     """
+    
+    # 确定嵌入率
+    if embed_rate is None:
+        embed_rate = DEFAULT_EMBED_RATE
+    
+    if not (0 < embed_rate <= 1):
+        return {"success": False, "error": "水印嵌入率必须在0和1之间"}
     
     # 1) 重新获取向量数据并计算低入度节点
     try:
@@ -323,16 +388,16 @@ def extract_watermark(db_params, table_name, id_col, emb_col, ids_file=None):
         idx = build_hnsw_index(data.copy())
         in_deg = compute_in_degrees(idx, ids)
         
-        # 选择所有入度≤MAX_IN_DEGREE的向量
-        low_ids = select_low_degree_ids(ids, in_deg)
+        # 按嵌入率选择低入度向量（与嵌入时使用相同策略）
+        low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate)
         
         if len(low_ids) < BLOCK_COUNT:
             return {
                 "success": False,
-                "error": f"入度≤{MAX_IN_DEGREE}的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
+                "error": f"按{embed_rate:.1%}嵌入率选择的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
             }
             
-        print(f"提取时找到 {len(low_ids)} 个低入度节点")
+        print(f"提取时按{embed_rate:.1%}嵌入率找到 {len(low_ids)} 个低入度节点")
         
     except Exception as e:
         return {"success": False, "error": f"获取向量数据或计算入度失败: {str(e)}"}

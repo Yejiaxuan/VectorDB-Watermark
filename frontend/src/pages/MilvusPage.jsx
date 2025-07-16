@@ -8,6 +8,7 @@ import {
   fetchMilvusVectorFields,
   fetchMilvusPrimaryKeys,
   embedMilvusWatermark,
+  extractMilvusWatermark,
   extractMilvusWatermarkWithFile
 } from '../api';
 
@@ -39,6 +40,8 @@ export default function MilvusPage() {
 
   // —— 水印操作状态 ——  
   const [message, setMessage] = useState('ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEF');
+  const [embedRate, setEmbedRate] = useState(10); // 水印嵌入率（百分比）
+  const [lastEmbedRate, setLastEmbedRate] = useState(null); // 记录上次成功嵌入的水印率
   const [embedResult, setEmbedResult] = useState('');
   const [extractResult, setExtractResult] = useState('');
   const [isEmbedding, setIsEmbedding] = useState(false);
@@ -161,10 +164,12 @@ export default function MilvusPage() {
     
     try {
       const dbParams = { host, port };
-      const result = await embedMilvusWatermark(dbParams, collection, primaryKey, vectorField, message);
+      const embedRateDecimal = embedRate / 100; // 转换为小数
+      const result = await embedMilvusWatermark(dbParams, collection, primaryKey, vectorField, message, embedRateDecimal);
       
-      setEmbedResult(`${result.message}。ID文件已自动下载，请妥善保存用于提取水印。`);
-      showToast('水印嵌入成功！ID文件已下载', 'success');
+      setEmbedResult(result.message);
+      setLastEmbedRate(embedRate); // 记录成功嵌入的水印率
+      showToast('水印嵌入成功！', 'success');
       
       if (result.file_id) {
         setFileId(result.file_id);
@@ -181,7 +186,34 @@ export default function MilvusPage() {
     }
   };
 
-  // 提取水印
+  // 提取水印（无需ID文件）
+  const handleExtractWithoutFile = async () => {
+    if (!connected || !collection || !vectorField || !primaryKey) return;
+    
+    setIsExtracting(true);
+    setExtractResult('');
+    
+    try {
+      const dbParams = { host, port };
+      const embedRateDecimal = embedRate / 100; // 转换为小数
+      const result = await extractMilvusWatermark(dbParams, collection, primaryKey, vectorField, embedRateDecimal);
+      
+      if (result.success) {
+        setExtractResult(`提取成功：${result.message} (恢复 ${result.recovered}/${result.blocks} 个区块)`);
+        showToast(`水印提取成功！恢复 ${result.recovered}/${result.blocks} 个区块`, 'success');
+      } else {
+        setExtractResult(`提取失败：${result.error}`);
+        showToast(`提取失败：${result.error}`, 'error');
+      }
+    } catch (error) {
+      setExtractResult(`错误: ${error.message}`);
+      showToast(`提取失败：${error.message}`, 'error');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  // 提取水印（使用ID文件）
   const handleExtract = async () => {
     if (!connected || !collection || !vectorField || !primaryKey || !selectedFile) return;
     
@@ -527,6 +559,31 @@ export default function MilvusPage() {
                       </div>
                     </div>
 
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        水印嵌入率: {embedRate}%
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="range"
+                          min="1"
+                          max="100"
+                          value={embedRate}
+                          onChange={e => setEmbedRate(parseInt(e.target.value))}
+                          className="slider w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          disabled={!connected || !collection || !vectorField}
+                        />
+                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                          <span>1%</span>
+                          <span>50%</span>
+                          <span>100%</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1">
+                        选择{embedRate}%的向量用于嵌入水印，比例越高嵌入的水印信息越多
+                      </p>
+                    </div>
+
                     <button
                       onClick={handleEmbed}
                       disabled={!connected || !collection || !primaryKey || !vectorField || !message || message.length !== 32 || isEmbedding}
@@ -546,7 +603,7 @@ export default function MilvusPage() {
                           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4V4" />
                           </svg>
-                          嵌入水印并下载ID文件
+                          嵌入水印
                         </div>
                       )}
                     </button>
@@ -570,6 +627,101 @@ export default function MilvusPage() {
                 {/* 提取水印 Tab */}
                 {activeTab === 'extract' && (
                   <div className="space-y-4 animate-fade-in">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        水印嵌入率: {embedRate}%
+                        {lastEmbedRate !== null && lastEmbedRate !== embedRate && (
+                          <span className="ml-2 text-xs">
+                            <span className="text-red-600 font-medium">
+                              (上次嵌入使用了 {lastEmbedRate}%)
+                            </span>
+                            <button
+                              onClick={() => setEmbedRate(lastEmbedRate)}
+                              className="ml-1 text-blue-600 hover:text-blue-800 underline"
+                            >
+                              恢复到 {lastEmbedRate}%
+                            </button>
+                          </span>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="range"
+                          min="1"
+                          max="100"
+                          value={embedRate}
+                          onChange={e => setEmbedRate(parseInt(e.target.value))}
+                          className="slider w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          disabled={!connected || !collection || !vectorField}
+                        />
+                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                          <span>1%</span>
+                          <span>50%</span>
+                          <span>100%</span>
+                        </div>
+                      </div>
+                      {lastEmbedRate !== null && (
+                        <div className={`mt-2 p-2 rounded-lg text-xs ${
+                          lastEmbedRate === embedRate 
+                            ? 'bg-green-50 border border-green-200 text-green-700' 
+                            : 'bg-red-50 border border-red-200 text-red-700'
+                        }`}>
+                          {lastEmbedRate === embedRate ? (
+                            <div className="flex items-center">
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              嵌入率匹配，可以正确提取水印
+                            </div>
+                          ) : (
+                            <div className="flex items-center">
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                              </svg>
+                              嵌入率不匹配，可能无法正确提取水印
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-600 mt-1">
+                        提取时使用相同的嵌入率({embedRate}%)以确保准确提取水印
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleExtractWithoutFile}
+                      disabled={!connected || !collection || !primaryKey || !vectorField || isExtracting}
+                      className="w-full bg-gradient-to-r from-blue-400 to-indigo-400 hover:from-blue-500 hover:to-indigo-500 text-white font-medium py-3 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
+                      style={{borderRadius: '0.5rem'}}
+                    >
+                      {isExtracting ? (
+                        <div className="flex items-center justify-center">
+                          <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          提取中...
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center">
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                          提取水印
+                        </div>
+                      )}
+                    </button>
+
+                    {/* 分隔线和文件上传选项 */}
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-gray-300"></div>
+                      </div>
+                      <div className="relative flex justify-center text-sm">
+                        <span className="px-2 bg-white text-gray-500">或使用ID文件提取（兼容旧版本）</span>
+                      </div>
+                    </div>
+
                     {/* 文件上传区域 */}
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-all duration-150 ease-in-out">
                       <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
@@ -623,7 +775,7 @@ export default function MilvusPage() {
                             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4V4" />
                             </svg>
-                            提取水印
+                            使用ID文件提取
                           </div>
                         )}
                       </button>

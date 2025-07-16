@@ -22,7 +22,8 @@ class WatermarkEmbedRequest(BaseModel):
     id_column: str  # 主键列名
     vector_column: str  # 向量列名
     message: str  # 水印消息
-    total_vecs: int = 1600  # 使用的向量数量，默认1600
+    embed_rate: float = 0.1  # 水印嵌入率，默认10%
+    total_vecs: int = 1600  # 使用的向量数量，默认1600（已弃用，保留兼容性）
 
 
 # Milvus水印嵌入请求模型
@@ -32,7 +33,8 @@ class MilvusWatermarkEmbedRequest(BaseModel):
     id_field: str  # 主键字段名
     vector_field: str  # 向量字段名
     message: str  # 水印消息
-    total_vecs: int = 1600  # 使用的向量数量，默认1600
+    embed_rate: float = 0.1  # 水印嵌入率，默认10%
+    total_vecs: int = 1600  # 使用的向量数量，默认1600（已弃用，保留兼容性）
 
 
 # 水印提取请求模型
@@ -41,6 +43,7 @@ class WatermarkExtractRequest(BaseModel):
     table: str  # 表名
     id_column: str  # 主键列名
     vector_column: str  # 向量列名
+    embed_rate: float = 0.1  # 水印嵌入率，默认10%（提取时需要与嵌入时保持一致）
 
 
 # Milvus水印提取请求模型
@@ -49,3 +52,4 @@ class MilvusWatermarkExtractRequest(BaseModel):
     collection_name: str  # 集合名
     id_field: str  # 主键字段名
     vector_field: str  # 向量字段名
+    embed_rate: float = 0.1  # 水印嵌入率，默认10%（提取时需要与嵌入时保持一致）
