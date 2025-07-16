@@ -144,7 +144,7 @@ class PGVectorManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def embed_watermark_with_file(
+    def embed_watermark_without_file(
             self,
             db_params: Dict[str, Any],
             table: str,
@@ -154,7 +154,7 @@ class PGVectorManager:
             total_vecs: int = 1600
     ) -> Dict[str, Any]:
         """
-        在指定表的向量列中嵌入水印，并生成唯一ID文件
+        在指定表的向量列中嵌入水印，不生成ID文件
         
         Args:
             db_params: 数据库连接参数
@@ -168,11 +168,6 @@ class PGVectorManager:
             嵌入结果字典
         """
         try:
-            # 生成带会话ID的唯一文件名
-            session_id = str(uuid.uuid4())[:8]
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            ids_file = f"{self.temp_dir}/wm_{table}_{vector_column}_{timestamp}_{session_id}.json"
-
             # 调用水印嵌入函数
             result = embed_watermark(
                 db_params=db_params,
@@ -180,73 +175,44 @@ class PGVectorManager:
                 id_col=id_column,
                 emb_col=vector_column,
                 message=message,
-                total_vecs=total_vecs,
-                ids_file=ids_file
+                total_vecs=total_vecs
             )
 
-            # 检查结果
-            if not result["success"]:
-                # 如果嵌入失败，尝试删除可能创建的文件
-                if os.path.exists(ids_file):
-                    os.remove(ids_file)
-                return result
-
-            # 设置文件名以便于客户端下载
-            result["file_id"] = os.path.basename(ids_file)
             return result
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def extract_watermark_with_uploaded_file(
+    def extract_watermark_without_file(
             self,
             db_params: Dict[str, Any],
             table: str,
             id_column: str,
-            vector_column: str,
-            file_content: bytes
+            vector_column: str
     ) -> Dict[str, Any]:
         """
-        从指定表的向量列中提取水印，使用上传的ID文件
+        从指定表的向量列中提取水印，重新计算低入度节点
         
         Args:
             db_params: 数据库连接参数
             table: 表名
             id_column: 主键列名
             vector_column: 向量列名
-            file_content: 上传的文件内容
             
         Returns:
             提取结果字典
         """
-        temp_file_path = None
         try:
-            # 生成唯一的临时文件名
-            session_id = str(uuid.uuid4())
-            temp_file_path = f"{self.temp_dir}/temp_{session_id}.json"
-
-            # 保存上传的文件到临时位置
-            with open(temp_file_path, "wb") as f:
-                f.write(file_content)
-
             # 调用水印提取函数
             result = extract_watermark(
                 db_params=db_params,
                 table_name=table,
                 id_col=id_column,
-                emb_col=vector_column,
-                ids_file=temp_file_path
+                emb_col=vector_column
             )
 
             return result
         except Exception as e:
             return {"success": False, "error": str(e)}
-        finally:
-            # 无论成功与否，确保清理临时文件
-            if temp_file_path and os.path.exists(temp_file_path):
-                try:
-                    os.remove(temp_file_path)
-                except:
-                    pass  # 如果删除失败，不要中断响应
 
     def get_file_path(self, file_id: str) -> str:
         """

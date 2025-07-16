@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Query, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import json
-from .models import DBParams, WatermarkEmbedRequest, MilvusDBParams, MilvusWatermarkEmbedRequest
+from .models import DBParams, WatermarkEmbedRequest, WatermarkExtractRequest, MilvusDBParams, MilvusWatermarkEmbedRequest
 from database.pgvector.client import PGVectorManager
 from database.milvus.client import MilvusManager
 
@@ -75,9 +75,9 @@ async def list_primary_keys(
 @app.post("/api/embed_watermark")
 async def embed_watermark_api(request: WatermarkEmbedRequest):
     """
-    在指定表的向量列中嵌入水印，并生成唯一ID文件
+    在指定表的向量列中嵌入水印，不生成ID文件
     """
-    result = database_manager.embed_watermark_with_file(
+    result = database_manager.embed_watermark_without_file(
         db_params=request.db_params,
         table=request.table,
         id_column=request.id_column,
@@ -92,46 +92,19 @@ async def embed_watermark_api(request: WatermarkEmbedRequest):
         raise HTTPException(status_code=400, detail=result["error"])
 
 
-@app.get("/api/download_ids_file/{file_id}")
-async def download_ids_file(file_id: str):
+# 移除了下载ID文件的API端点，因为不再需要ID文件
+
+
+@app.post("/api/extract-watermark")
+async def extract_watermark_api(request: WatermarkExtractRequest):
     """
-    下载水印ID文件（使用文件ID）
+    从指定表的向量列中提取水印，重新计算低入度节点
     """
-    if not database_manager.file_exists(file_id):
-        raise HTTPException(status_code=404, detail=f"ID文件不存在或已过期")
-
-    file_path = database_manager.get_file_path(file_id)
-    return FileResponse(
-        path=file_path,
-        filename=file_id,
-        media_type="application/json"
-    )
-
-
-@app.post("/api/extract_watermark_with_file")
-async def extract_watermark_with_file(
-        file: UploadFile = File(...),
-        db_json: str = Form(...),
-        table: str = Form(...),
-        id_column: str = Form(...),
-        vector_column: str = Form(...)
-):
-    """
-    从指定表的向量列中提取水印，使用上传的ID文件
-    """
-    # 解析数据库连接参数
-    db_params = json.loads(db_json)
-
-    # 读取上传的文件内容
-    file_content = await file.read()
-
-    # 调用管理器的提取方法
-    result = database_manager.extract_watermark_with_uploaded_file(
-        db_params=db_params,
-        table=table,
-        id_column=id_column,
-        vector_column=vector_column,
-        file_content=file_content
+    result = database_manager.extract_watermark_without_file(
+        db_params=request.db_params,
+        table=request.table,
+        id_column=request.id_column,
+        vector_column=request.vector_column
     )
 
     if result["success"]:

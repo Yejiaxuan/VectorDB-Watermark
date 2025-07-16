@@ -72,13 +72,13 @@ export async function fetchPrimaryKeys(dbParams, table) {
 }
 
 /**
- * 在指定表的向量列中嵌入水印并自动下载ID文件
+ * 在指定表的向量列中嵌入水印
  * @param {{host,port,dbname,user,password}} dbParams 数据库连接参数
  * @param {string} table 表名
  * @param {string} idColumn 主键列名
  * @param {string} vectorColumn 向量列名
  * @param {string} message 水印消息
- * @returns {Promise<{success: boolean, message: string, updated: number, file_id: string}>} 结果
+ * @returns {Promise<{success: boolean, message: string, updated: number}>} 结果
  */
 export async function embedWatermark(dbParams, table, idColumn, vectorColumn, message) {
   const res = await fetch('/api/embed_watermark', {
@@ -99,20 +99,7 @@ export async function embedWatermark(dbParams, table, idColumn, vectorColumn, me
     throw new Error(err.detail || '水印嵌入失败');
   }
   
-  const result = await res.json();
-  
-  // 如果嵌入成功且有文件ID，自动触发下载
-  if (result.success && result.file_id) {
-    try {
-      await downloadIdsFileById(result.file_id, table, vectorColumn);
-    } catch (error) {
-      console.error('自动下载ID文件失败，请稍后手动下载', error);
-      // 继续返回原始结果，但添加警告
-      result.downloadWarning = '自动下载ID文件失败，请稍后手动下载';
-    }
-  }
-  
-  return result;
+  return res.json();
 }
 
 /**
@@ -159,7 +146,35 @@ export async function downloadIdsFileById(fileId, table, vectorColumn) {
 }
 
 /**
- * 使用上传的ID文件提取水印
+ * 提取水印，重新计算低入度节点
+ * @param {{host,port,dbname,user,password}} dbParams 数据库连接参数
+ * @param {string} table 表名
+ * @param {string} idColumn 主键列名
+ * @param {string} vectorColumn 向量列名
+ * @returns {Promise<{success: boolean, message: string, blocks: number, recovered: number}>} 结果
+ */
+export async function extractWatermark(dbParams, table, idColumn, vectorColumn) {
+  const res = await fetch('/api/extract-watermark', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      db_params: dbParams,
+      table,
+      id_column: idColumn,
+      vector_column: vectorColumn
+    })
+  });
+  
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '水印提取失败');
+  }
+  
+  return res.json();
+}
+
+/**
+ * 使用上传的ID文件提取水印（保留用于向后兼容）
  * @param {{host,port,dbname,user,password}} dbParams 数据库连接参数
  * @param {string} table 表名
  * @param {string} idColumn 主键列名

@@ -261,12 +261,8 @@ def backup_vectors(db_params, table_name, id_col, emb_col, low_ids, file_path='o
 
 def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=TOTAL_VECS, ids_file=None):
     """
-    嵌入水印流程 - 使用入度≤MAX_IN_DEGREE的向量
+    嵌入水印流程 - 使用入度≤MAX_IN_DEGREE的向量，不保存ID文件
     """
-    # 生成默认的IDS文件名
-    if ids_file is None:
-        ids_file = f"wm_{table_name}_{emb_col}.json"
-
     # 检查消息长度
     if len(message) != BLOCK_COUNT * 2:
         return {"success": False, "error": f"消息长度必须为 {BLOCK_COUNT * 2} 字符"}
@@ -285,18 +281,16 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=
         idx = build_hnsw_index(data.copy())
         in_deg = compute_in_degrees(idx, ids)
 
-        # 选择所有入度≤2的向量
+        # 选择所有入度≤MAX_IN_DEGREE的向量
         low_ids = select_low_degree_ids(ids, in_deg)
 
         # 如果选出的向量太少，返回错误
         if len(low_ids) < BLOCK_COUNT:
             return {
                 "success": False,
-                "error": f"入度≤5的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
+                "error": f"入度≤{MAX_IN_DEGREE}的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
             }
 
-        # 保存ID列表到文件
-        save_low_degree_ids(low_ids, ids_file)
     except Exception as e:
         return {"success": False, "error": f"生成低入度向量ID失败: {str(e)}"}
 
@@ -305,13 +299,12 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=
         wm = VectorWatermark(vec_dim=DIM, msg_len=MSG_LEN, model_path=MODEL_PATH)
         updated = embed_into_db(low_ids, data, chunks, wm, db_params, table_name, id_col, emb_col)
 
-        # 添加使用的向量数量到返回信息
+        # 返回嵌入结果，不包含文件信息
         return {
             "success": True,
-            "message": f"水印嵌入完成，使用了{len(low_ids)}个入度≤5的向量，更新了{updated}个向量",
+            "message": f"水印嵌入完成，使用了{len(low_ids)}个入度≤{MAX_IN_DEGREE}的向量，更新了{updated}个向量",
             "updated": updated,
-            "used_vectors": len(low_ids),
-            "ids_file": ids_file
+            "used_vectors": len(low_ids)
         }
     except Exception as e:
         return {"success": False, "error": f"嵌入水印失败: {str(e)}"}
@@ -319,39 +312,86 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, total_vecs=
 
 def extract_watermark(db_params, table_name, id_col, emb_col, ids_file=None):
     """
-    提取水印流程 - 使用纯统计方法
+    提取水印流程 - 重新计算低入度节点并使用纯统计方法
     """
-    # 生成默认的IDS文件名
-    if ids_file is None:
-        ids_file = f"wm_{table_name}_{emb_col}.json"
-
-    # 1) 加载低入度向量ID列表
+    
+    # 1) 重新获取向量数据并计算低入度节点
     try:
-        if not os.path.exists(ids_file):
-            return {"success": False, "error": f"找不到ID列表文件: {ids_file}"}
-
-        low_ids = load_low_degree_ids(ids_file)
+        ids, data = fetch_vectors(db_params, table_name, id_col, emb_col)
+        
+        # 重新构建索引并计算入度
+        idx = build_hnsw_index(data.copy())
+        in_deg = compute_in_degrees(idx, ids)
+        
+        # 选择所有入度≤MAX_IN_DEGREE的向量
+        low_ids = select_low_degree_ids(ids, in_deg)
+        
+        if len(low_ids) < BLOCK_COUNT:
+            return {
+                "success": False,
+                "error": f"入度≤{MAX_IN_DEGREE}的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
+            }
+            
+        print(f"提取时找到 {len(low_ids)} 个低入度节点")
+        
     except Exception as e:
-        return {"success": False, "error": f"加载ID列表失败: {str(e)}"}
+        return {"success": False, "error": f"获取向量数据或计算入度失败: {str(e)}"}
 
-    # 2) 提取水印
+    # 2) 提取水印 - 对所有低入度节点进行解码
     try:
         wm = VectorWatermark(vec_dim=DIM, msg_len=MSG_LEN, model_path=MODEL_PATH)
-        rec = extract_from_db(db_params, table_name, id_col, emb_col, low_ids, wm)
-    except Exception as e:
-        return {"success": False, "error": f"提取水印失败: {str(e)}"}
+        
+        # 连接数据库获取低入度向量
+        conn = psycopg2.connect(**db_params)
+        register_vector(conn)
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {id_col}, {emb_col} FROM {table_name} WHERE {id_col} = ANY(%s) ORDER BY {id_col}",
+            (low_ids,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
 
-    # 3) 恢复消息 - 使用纯统计方法
-    try:
+        # 按块收集有效载荷
+        rec_payloads = {b: [] for b in range(BLOCK_COUNT)}
+        device = wm.device
+        valid_decodes = 0
+        total_decodes = 0
+
+        for oid, vec in rows:
+            total_decodes += 1
+            vec = np.array(vec, dtype=np.float32)
+            cover = torch.tensor(vec, device=device).unsqueeze(0)
+
+            rec_bits = wm.decode(cover).squeeze(0).cpu().numpy().astype(int).tolist()
+            idx_bits, crc_bits = rec_bits[:4], rec_bits[4:8]
+            payload = rec_bits[8:]
+
+            # 验证CRC
+            if crc_bits != crc4(idx_bits):
+                continue
+                
+            # 验证块索引
+            blk = sum(idx_bits[i] << (3 - i) for i in range(4))
+            if not (0 <= blk < BLOCK_COUNT):
+                continue
+
+            # 收集有效载荷
+            rec_payloads[blk].append(np.array(payload, dtype=int))
+            valid_decodes += 1
+
+        print(f"总解码: {total_decodes}, 有效解码: {valid_decodes}")
+
+        # 3) 恢复消息 - 使用纯统计方法
         from collections import Counter
-        import numpy as np
 
         recovered = []
         recovered_blocks = 0
         stats_info = []  # 记录每个区块的统计信息
 
         for b in range(BLOCK_COUNT):
-            samples = rec.get(b, [])
+            samples = rec_payloads.get(b, [])
             if not samples:
                 recovered.append("??")
                 stats_info.append({"block": b, "status": "empty", "samples": 0})
@@ -360,7 +400,6 @@ def extract_watermark(db_params, table_name, id_col, emb_col, ids_file=None):
             recovered_blocks += 1
 
             # 将每个样本转化为比特串的哈希值用于统计
-            # 注意: 我们统计的是原始比特串而不是转换后的文本
             bit_strings = []
             for sample in samples:
                 # 将浮点样本转化为二进制比特
@@ -375,7 +414,7 @@ def extract_watermark(db_params, table_name, id_col, emb_col, ids_file=None):
 
             if most_common:  # 确保有结果
                 most_common_bits, count = most_common[0]
-                # 使用出现频率最高的比特串，无论其频率如何
+                # 使用出现频率最高的比特串
                 best_bits = np.array(most_common_bits)
                 txt = bits_to_text(best_bits)
 
@@ -400,8 +439,12 @@ def extract_watermark(db_params, table_name, id_col, emb_col, ids_file=None):
             "message": final,
             "blocks": BLOCK_COUNT,
             "recovered": recovered_blocks,
-            "method": "pure_statistical",
+            "method": "recomputed_statistical",
+            "total_low_degree_nodes": len(low_ids),
+            "valid_decodes": valid_decodes,
+            "total_decodes": total_decodes,
             "stats": stats_info  # 添加统计信息以便分析
         }
+        
     except Exception as e:
-        return {"success": False, "error": f"恢复消息失败: {str(e)}"}
+        return {"success": False, "error": f"提取水印失败: {str(e)}"}

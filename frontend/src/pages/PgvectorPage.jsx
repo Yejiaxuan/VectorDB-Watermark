@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Toast from '../components/Toast';
 import Combobox from '../components/Combobox';
 import {
@@ -7,7 +7,7 @@ import {
   fetchColumns,
   fetchPrimaryKeys,
   embedWatermark,
-  extractWatermarkWithFile
+  extractWatermark
 } from '../api';
 
 export default function PgvectorPage() {
@@ -48,9 +48,7 @@ export default function PgvectorPage() {
   const [fileId, setFileId] = useState('');
   
   // —— 文件上传相关 ——
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [fileName, setFileName] = useState('');
-  const fileInputRef = useRef(null);
+
 
   // —— Toast 相关 ——
   const [toasts, setToasts] = useState([]);
@@ -187,17 +185,18 @@ export default function PgvectorPage() {
 
   // 提取水印
   const handleExtract = async () => {
-    if (!connected || !table || !column || !primaryKey || !selectedFile) return;
+    if (!connected || !table || !column || !primaryKey) return;
     
     setIsExtracting(true);
     setExtractResult('');
     
     try {
       const dbParams = { host: ip, port, dbname, user, password };
-      const result = await extractWatermarkWithFile(dbParams, table, primaryKey, column, selectedFile);
+      const result = await extractWatermark(dbParams, table, primaryKey, column);
       
       if (result.success) {
-        setExtractResult(`提取成功：${result.message} (恢复 ${result.recovered}/${result.blocks} 个区块)`);
+        const stats = result.stats ? ` (有效解码: ${result.valid_decodes}/${result.total_decodes})` : '';
+        setExtractResult(`提取成功：${result.message} (恢复 ${result.recovered}/${result.blocks} 个区块)${stats}`);
         showToast(`水印提取成功！恢复 ${result.recovered}/${result.blocks} 个区块`, 'success');
       } else {
         setExtractResult(`提取失败：${result.error}`);
@@ -211,25 +210,6 @@ export default function PgvectorPage() {
     }
   };
   
-  // 处理文件选择
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setSelectedFile(file);
-      setFileName(file.name);
-      showToast('ID文件选择成功', 'success');
-    }
-  };
-  
-  // 清除选择的文件
-  const clearFileSelection = () => {
-    setSelectedFile(null);
-    setFileName('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   // 返回上一步
   const goBack = () => {
     setCurrentStep(1);
@@ -612,7 +592,7 @@ export default function PgvectorPage() {
                           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4V4" />
                           </svg>
-                          嵌入水印并下载ID文件
+                          嵌入水印
                         </div>
                       )}
                     </button>
@@ -636,44 +616,20 @@ export default function PgvectorPage() {
                 {/* 提取水印 Tab */}
                 {activeTab === 'extract' && (
                   <div className="space-y-4 animate-fade-in">
-                    {/* 文件上传区域 */}
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-all duration-150 ease-in-out">
-                      <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                    {/* 提取操作区域 */}
+                    <div className="bg-gray-50 rounded-lg p-6 text-center border border-gray-200">
+                      <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4V4" />
                       </svg>
-                      <div className="mt-4">
-                        <label htmlFor="file-upload" className="cursor-pointer">
-                          <span className="mt-2 block text-sm font-medium text-gray-700">
-                            {fileName ? fileName : '点击选择ID文件'}
-                          </span>
-                          <span className="mt-1 block text-xs text-gray-500">
-                            支持JSON格式文件
-                          </span>
-                        </label>
-                        <input
-                          id="file-upload"
-                          ref={fileInputRef}
-                          type="file"
-                          className="sr-only"
-                          onChange={handleFileChange}
-                          accept=".json"
-                        />
-                      </div>
-                      {selectedFile && (
-                        <button
-                          onClick={clearFileSelection}
-                          className="mt-2 text-red-600 hover:text-red-800 text-sm font-medium transition-colors duration-150 ease-in-out"
-                        >
-                          清除选择
-                        </button>
-                      )}
-                    </div>
-                    
-                    <div className="flex space-x-3">
+                      <h3 className="text-lg font-medium text-gray-700 mb-2">提取水印</h3>
+                      <p className="text-sm text-gray-500 mb-6">
+                        系统将自动分析向量数据并提取嵌入的水印信息
+                      </p>
+                      
                       <button
                         onClick={handleExtract}
-                        disabled={!connected || !table || !primaryKey || !column || isExtracting || !selectedFile}
-                        className="flex-1 bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
+                        disabled={!connected || !table || !primaryKey || !column || isExtracting}
+                        className="bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 px-8 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
                         style={{borderRadius: '0.5rem'}}
                       >
                         {isExtracting ? (
@@ -692,14 +648,6 @@ export default function PgvectorPage() {
                             提取水印
                           </div>
                         )}
-                      </button>
-                      <button
-                        onClick={clearFileSelection}
-                        disabled={!selectedFile}
-                        className="px-4 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed"
-                        style={{borderRadius: '0.5rem'}}
-                      >
-                        清除
                       </button>
                     </div>
 
