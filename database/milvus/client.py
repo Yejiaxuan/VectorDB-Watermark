@@ -20,16 +20,11 @@ from .milvus_func import embed_watermark, extract_watermark
 class MilvusManager:
     """Milvus数据库操作管理器"""
 
-    def __init__(self, temp_dir: str = "temp_files"):
+    def __init__(self):
         """
         初始化管理器
-        
-        Args:
-            temp_dir: 临时文件目录
         """
-        self.temp_dir = temp_dir
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
+        pass
         self.connection_alias = None
 
     def test_connection(self, db_params: Dict[str, Any]) -> Dict[str, Any]:
@@ -97,19 +92,19 @@ class MilvusManager:
                 host=db_params.get("host", "localhost"),
                 port=db_params.get("port", 19530)
             )
-            
+
             if not utility.has_collection(collection_name, using=alias):
                 connections.disconnect(alias)
                 return {"success": False, "error": f"集合 {collection_name} 不存在"}
-            
+
             collection = Collection(collection_name, using=alias)
             schema = collection.schema
-            
+
             vector_fields = []
             for field in schema.fields:
                 if field.dtype in [DataType.FLOAT_VECTOR, DataType.BINARY_VECTOR]:
                     vector_fields.append(field.name)
-            
+
             connections.disconnect(alias)
             return {"success": True, "fields": vector_fields}
         except Exception as e:
@@ -133,25 +128,25 @@ class MilvusManager:
                 host=db_params.get("host", "localhost"),
                 port=db_params.get("port", 19530)
             )
-            
+
             if not utility.has_collection(collection_name, using=alias):
                 connections.disconnect(alias)
                 return {"success": False, "error": f"集合 {collection_name} 不存在"}
-            
+
             collection = Collection(collection_name, using=alias)
             schema = collection.schema
-            
+
             primary_keys = []
             for field in schema.fields:
                 if field.is_primary:
                     primary_keys.append(field.name)
-            
+
             connections.disconnect(alias)
             return {"success": True, "keys": primary_keys}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def embed_watermark_without_file(
+    def embed_watermark(
             self,
             db_params: Dict[str, Any],
             collection_name: str,
@@ -190,63 +185,7 @@ class MilvusManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def embed_watermark_with_file(
-            self,
-            db_params: Dict[str, Any],
-            collection_name: str,
-            id_field: str,
-            vector_field: str,
-            message: str,
-            embed_rate: float = 0.1,
-            total_vecs: int = 1600
-    ) -> Dict[str, Any]:
-        """
-        在指定集合的向量字段中嵌入水印，并生成唯一ID文件（保留用于向后兼容）
-        
-        Args:
-            db_params: 数据库连接参数
-            collection_name: 集合名
-            id_field: 主键字段名
-            vector_field: 向量字段名
-            message: 水印消息
-            embed_rate: 水印嵌入率，默认10%
-            total_vecs: 使用的向量数量，默认1600（已弃用）
-            
-        Returns:
-            嵌入结果字典
-        """
-        try:
-            # 生成带会话ID的唯一文件名
-            session_id = str(uuid.uuid4())[:8]
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            ids_file = f"{self.temp_dir}/wm_{collection_name}_{vector_field}_{timestamp}_{session_id}.json"
-
-            # 调用水印嵌入函数
-            result = embed_watermark(
-                db_params=db_params,
-                collection_name=collection_name,
-                id_field=id_field,
-                vector_field=vector_field,
-                message=message,
-                embed_rate=embed_rate,
-                total_vecs=total_vecs,
-                ids_file=ids_file
-            )
-
-            # 检查结果
-            if not result["success"]:
-                # 如果嵌入失败，尝试删除可能创建的文件
-                if os.path.exists(ids_file):
-                    os.remove(ids_file)
-                return result
-
-            # 设置文件名以便于客户端下载
-            result["file_id"] = os.path.basename(ids_file)
-            return result
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    def extract_watermark_without_file(
+    def extract_watermark(
             self,
             db_params: Dict[str, Any],
             collection_name: str,
@@ -281,78 +220,3 @@ class MilvusManager:
             return result
         except Exception as e:
             return {"success": False, "error": str(e)}
-
-    def extract_watermark_with_uploaded_file(
-            self,
-            db_params: Dict[str, Any],
-            collection_name: str,
-            id_field: str,
-            vector_field: str,
-            file_content: bytes
-    ) -> Dict[str, Any]:
-        """
-        从指定集合的向量字段中提取水印，使用上传的ID文件（保留用于向后兼容）
-        
-        Args:
-            db_params: 数据库连接参数
-            collection_name: 集合名
-            id_field: 主键字段名
-            vector_field: 向量字段名
-            file_content: 上传的文件内容
-            
-        Returns:
-            提取结果字典
-        """
-        temp_file_path = None
-        try:
-            # 生成唯一的临时文件名
-            session_id = str(uuid.uuid4())
-            temp_file_path = f"{self.temp_dir}/temp_{session_id}.json"
-
-            # 保存上传的文件到临时位置
-            with open(temp_file_path, "wb") as f:
-                f.write(file_content)
-
-            # 调用水印提取函数
-            result = extract_watermark(
-                db_params=db_params,
-                collection_name=collection_name,
-                id_field=id_field,
-                vector_field=vector_field,
-                ids_file=temp_file_path
-            )
-
-            return result
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-        finally:
-            # 无论成功与否，确保清理临时文件
-            if temp_file_path and os.path.exists(temp_file_path):
-                try:
-                    os.remove(temp_file_path)
-                except:
-                    pass  # 如果删除失败，不要中断响应
-
-    def get_file_path(self, file_id: str) -> str:
-        """
-        获取文件的完整路径
-        
-        Args:
-            file_id: 文件ID
-            
-        Returns:
-            文件的完整路径
-        """
-        return f"{self.temp_dir}/{file_id}"
-
-    def file_exists(self, file_id: str) -> bool:
-        """
-        检查文件是否存在
-        
-        Args:
-            file_id: 文件ID
-            
-        Returns:
-            文件是否存在
-        """
-        return os.path.exists(self.get_file_path(file_id)) 

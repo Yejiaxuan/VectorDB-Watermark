@@ -44,8 +44,5 @@ package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
-# 临时文件
-temp_files
-
 # Docker 数据文件
 volumes/

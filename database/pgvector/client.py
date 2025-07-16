@@ -21,16 +21,11 @@ from .pg_func import embed_watermark, extract_watermark
 class PGVectorManager:
     """PGVector数据库操作管理器"""
 
-    def __init__(self, temp_dir: str = "temp_files"):
+    def __init__(self):
         """
         初始化管理器
-        
-        Args:
-            temp_dir: 临时文件目录
         """
-        self.temp_dir = temp_dir
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
+        pass
 
     def test_connection(self, db_params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -144,7 +139,7 @@ class PGVectorManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def embed_watermark_without_file(
+    def embed_watermark(
             self,
             db_params: Dict[str, Any],
             table: str,
@@ -184,7 +179,7 @@ class PGVectorManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def extract_watermark_without_file(
+    def extract_watermark(
             self,
             db_params: Dict[str, Any],
             table: str,
@@ -218,27 +213,3 @@ class PGVectorManager:
             return result
         except Exception as e:
             return {"success": False, "error": str(e)}
-
-    def get_file_path(self, file_id: str) -> str:
-        """
-        获取文件的完整路径
-        
-        Args:
-            file_id: 文件ID
-            
-        Returns:
-            文件的完整路径
-        """
-        return f"{self.temp_dir}/{file_id}"
-
-    def file_exists(self, file_id: str) -> bool:
-        """
-        检查文件是否存在
-        
-        Args:
-            file_id: 文件ID
-            
-        Returns:
-            文件是否存在
-        """
-        return os.path.exists(self.get_file_path(file_id))

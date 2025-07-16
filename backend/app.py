@@ -1,10 +1,8 @@
 import os
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-from fastapi import FastAPI, HTTPException, Query, File, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-import json
 from .models import DBParams, WatermarkEmbedRequest, WatermarkExtractRequest, MilvusDBParams, \
     MilvusWatermarkEmbedRequest, MilvusWatermarkExtractRequest
 from database.pgvector.client import PGVectorManager
@@ -19,8 +17,8 @@ app.add_middleware(
 )
 
 # 创建管理器实例
-pgvector_manager = PGVectorManager(temp_dir="temp_files")
-milvus_manager = MilvusManager(temp_dir="temp_files")
+pgvector_manager = PGVectorManager()
+milvus_manager = MilvusManager()
 
 
 @app.post("/api/connect")
@@ -79,7 +77,7 @@ async def embed_watermark_api(request: WatermarkEmbedRequest):
     """
     在指定表的向量列中嵌入水印，不生成ID文件
     """
-    result = pgvector_manager.embed_watermark_without_file(
+    result = pgvector_manager.embed_watermark(
         db_params=request.db_params,
         table=request.table,
         id_column=request.id_column,
@@ -102,7 +100,7 @@ async def extract_watermark_api(request: WatermarkExtractRequest):
     """
     从指定表的向量列中提取水印，重新计算低入度节点
     """
-    result = pgvector_manager.extract_watermark_without_file(
+    result = pgvector_manager.extract_watermark(
         db_params=request.db_params,
         table=request.table,
         id_column=request.id_column,
@@ -177,7 +175,7 @@ async def embed_milvus_watermark_api(request: MilvusWatermarkEmbedRequest):
     """
     在指定Milvus集合的向量字段中嵌入水印，不生成ID文件
     """
-    result = milvus_manager.embed_watermark_without_file(
+    result = milvus_manager.embed_watermark(
         db_params=request.db_params,
         collection_name=request.collection_name,
         id_field=request.id_field,
@@ -190,43 +188,6 @@ async def embed_milvus_watermark_api(request: MilvusWatermarkEmbedRequest):
         return result
     else:
         raise HTTPException(status_code=400, detail=result["error"])
-
-
-@app.post("/api/milvus/embed_watermark_with_file")
-async def embed_milvus_watermark_with_file_api(request: MilvusWatermarkEmbedRequest):
-    """
-    在指定Milvus集合的向量字段中嵌入水印，并生成唯一ID文件（保留用于向后兼容）
-    """
-    result = milvus_manager.embed_watermark_with_file(
-        db_params=request.db_params,
-        collection_name=request.collection_name,
-        id_field=request.id_field,
-        vector_field=request.vector_field,
-        message=request.message,
-        embed_rate=request.embed_rate,
-        total_vecs=request.total_vecs
-    )
-
-    if result["success"]:
-        return result
-    else:
-        raise HTTPException(status_code=400, detail=result["error"])
-
-
-@app.get("/api/milvus/download_ids_file/{file_id}")
-async def download_milvus_ids_file(file_id: str):
-    """
-    下载Milvus水印ID文件（使用文件ID）
-    """
-    if not milvus_manager.file_exists(file_id):
-        raise HTTPException(status_code=404, detail=f"ID文件不存在或已过期")
-
-    file_path = milvus_manager.get_file_path(file_id)
-    return FileResponse(
-        path=file_path,
-        filename=file_id,
-        media_type="application/json"
-    )
 
 
 @app.post("/api/milvus/extract_watermark")
@@ -234,44 +195,12 @@ async def extract_milvus_watermark_api(request: MilvusWatermarkExtractRequest):
     """
     从指定Milvus集合的向量字段中提取水印，重新计算低入度节点
     """
-    result = milvus_manager.extract_watermark_without_file(
+    result = milvus_manager.extract_watermark(
         db_params=request.db_params,
         collection_name=request.collection_name,
         id_field=request.id_field,
         vector_field=request.vector_field,
         embed_rate=request.embed_rate
-    )
-
-    if result["success"]:
-        return result
-    else:
-        raise HTTPException(status_code=400, detail=result["error"])
-
-
-@app.post("/api/milvus/extract_watermark_with_file")
-async def extract_milvus_watermark_with_file(
-        file: UploadFile = File(...),
-        db_json: str = Form(...),
-        collection_name: str = Form(...),
-        id_field: str = Form(...),
-        vector_field: str = Form(...)
-):
-    """
-    从指定Milvus集合的向量字段中提取水印，使用上传的ID文件（保留用于向后兼容）
-    """
-    # 解析数据库连接参数
-    db_params = json.loads(db_json)
-
-    # 读取上传的文件内容
-    file_content = await file.read()
-
-    # 调用管理器的提取方法
-    result = milvus_manager.extract_watermark_with_uploaded_file(
-        db_params=db_params,
-        collection_name=collection_name,
-        id_field=id_field,
-        vector_field=vector_field,
-        file_content=file_content
     )
 
     if result["success"]:

@@ -47,7 +47,7 @@ export default function PgvectorPage() {
   const [extractResult, setExtractResult] = useState('');
   const [isEmbedding, setIsEmbedding] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [fileId, setFileId] = useState('');
+
   
   // —— 文件上传相关 ——
 
@@ -119,7 +119,6 @@ export default function PgvectorPage() {
 
   // 当表格或列变更时，重置水印状态
   useEffect(() => {
-    setFileId('');
     setEmbedResult('');
     setExtractResult('');
   }, [table, column]);
@@ -161,7 +160,6 @@ export default function PgvectorPage() {
     setIsEmbedding(true);
     setEmbedResult('');
     setExtractResult('');
-    setFileId('');
     
     try {
       const dbParams = { host: ip, port, dbname, user, password };
