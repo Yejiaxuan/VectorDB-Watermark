@@ -15,22 +15,20 @@ import faiss
 import torch
 from pgvector.psycopg2 import register_vector
 from algorithms.deep_learning.watermark import VectorWatermark
+from configs.config import Config
 
-# —— 核心参数 —— #
-DIM = 384  # 向量维度
-M = 16  # HNSW参数
-EF_CONSTRUCTION = 200  # HNSW构建参数
-EF_SEARCH = 50  # HNSW搜索参数
-MODEL_PATH = os.getenv('WM_MODEL_PATH', os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                                                     'algorithms/deep_learning/results/vector_val/best.pt'))  # 模型路径
+# —— 从配置文件获取参数 —— #
+DIM = Config.VEC_DIM
+M = Config.HNSW_M
+EF_CONSTRUCTION = Config.HNSW_EF_CONSTRUCTION
+EF_SEARCH = Config.HNSW_EF_SEARCH
+MODEL_PATH = os.getenv('WM_MODEL_PATH', Config.MODEL_PATH)
 
 # —— 水印参数 —— #
-MSG_LEN = 24  # 4 idx + 4 CRC + 16 payload
-BLOCK_PAYLOAD = 16  # 每块载荷比特数
-BLOCK_COUNT = 16  # 块数量
-TOTAL_VECS = 1600  # 默认使用的向量数量（已弃用，现使用embed_rate）
-DEFAULT_EMBED_RATE = 0.1  # 默认水印嵌入率10%
-# ————————————— #
+MSG_LEN = Config.MSG_LEN
+BLOCK_PAYLOAD = Config.BLOCK_PAYLOAD
+BLOCK_COUNT = Config.BLOCK_COUNT
+DEFAULT_EMBED_RATE = Config.DEFAULT_EMBED_RATE
 
 
 def crc4(bits4):
@@ -136,13 +134,13 @@ def select_low_degree_ids_by_rate(ids: list, in_degs: dict, embed_rate: float):
     if target_count < BLOCK_COUNT:
         # 如果目标数量少于块数，至少保证有足够的向量
         target_count = BLOCK_COUNT
-    
+
     # 按入度排序所有向量（入度相同时按ID排序确保稳定性）
     sorted_pairs = sorted([(id_, in_degs[id_]) for id_ in ids], key=lambda x: (x[1], x[0]))
-    
+
     # 选择前target_count个向量
     selected = [pid for pid, _ in sorted_pairs[:target_count]]
-    
+
     return selected
 
 
@@ -211,11 +209,11 @@ def embed_into_db(low_ids: list, data: np.ndarray, chunks: list, wm: VectorWater
 
         # 嵌入水印
         vec = sel_data[i]
-        cover = torch.tensor(vec, device=device).unsqueeze(0) 
+        cover = torch.tensor(vec, device=device).unsqueeze(0)
 
         msg_t = torch.tensor([msg_bits], dtype=torch.float32, device=device)
-        stego, _ = wm.encode(cover, message=msg_t) 
-        stego = stego.squeeze(0).cpu().numpy().astype(np.float32) 
+        stego, _ = wm.encode(cover, message=msg_t)
+        stego = stego.squeeze(0).cpu().numpy().astype(np.float32)
         stegos.append(stego)
 
     # 打印每个区块分配的向量数量
@@ -246,7 +244,7 @@ def extract_from_db(db_params, table_name, id_col, emb_col, low_ids: list, wm: V
 
     for oid, vec in rows:
         vec = np.array(vec, dtype=np.float32)
-        cover = torch.tensor(vec, device=device).unsqueeze(0) 
+        cover = torch.tensor(vec, device=device).unsqueeze(0)
 
         rec_bits = wm.decode(cover) \
             .squeeze(0).cpu().numpy().astype(int).tolist()
@@ -308,7 +306,7 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, embed_rate=
     # 确定嵌入率
     if embed_rate is None:
         embed_rate = DEFAULT_EMBED_RATE
-    
+
     if not (0 < embed_rate <= 1):
         return {"success": False, "error": "水印嵌入率必须在0和1之间"}
 
@@ -372,40 +370,40 @@ def extract_watermark(db_params, table_name, id_col, emb_col, embed_rate=None, i
         embed_rate: 水印嵌入率（0-1之间的浮点数），如果提供则使用此参数重新计算
         ids_file: ID文件路径（已弃用，保留兼容性）
     """
-    
+
     # 确定嵌入率
     if embed_rate is None:
         embed_rate = DEFAULT_EMBED_RATE
-    
+
     if not (0 < embed_rate <= 1):
         return {"success": False, "error": "水印嵌入率必须在0和1之间"}
-    
+
     # 1) 重新获取向量数据并计算低入度节点
     try:
         ids, data = fetch_vectors(db_params, table_name, id_col, emb_col)
-        
+
         # 重新构建索引并计算入度
         idx = build_hnsw_index(data.copy())
         in_deg = compute_in_degrees(idx, ids)
-        
+
         # 按嵌入率选择低入度向量（与嵌入时使用相同策略）
         low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate)
-        
+
         if len(low_ids) < BLOCK_COUNT:
             return {
                 "success": False,
                 "error": f"按{embed_rate:.1%}嵌入率选择的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
             }
-            
+
         print(f"提取时按{embed_rate:.1%}嵌入率找到 {len(low_ids)} 个低入度节点")
-        
+
     except Exception as e:
         return {"success": False, "error": f"获取向量数据或计算入度失败: {str(e)}"}
 
     # 2) 提取水印 - 对所有低入度节点进行解码
     try:
         wm = VectorWatermark(vec_dim=DIM, msg_len=MSG_LEN, model_path=MODEL_PATH)
-        
+
         # 连接数据库获取低入度向量
         conn = psycopg2.connect(**db_params)
         register_vector(conn)
@@ -436,7 +434,7 @@ def extract_watermark(db_params, table_name, id_col, emb_col, embed_rate=None, i
             # 验证CRC
             if crc_bits != crc4(idx_bits):
                 continue
-                
+
             # 验证块索引
             blk = sum(idx_bits[i] << (3 - i) for i in range(4))
             if not (0 <= blk < BLOCK_COUNT):
@@ -510,6 +508,6 @@ def extract_watermark(db_params, table_name, id_col, emb_col, embed_rate=None, i
             "total_decodes": total_decodes,
             "stats": stats_info  # 添加统计信息以便分析
         }
-        
+
     except Exception as e:
         return {"success": False, "error": f"提取水印失败: {str(e)}"}

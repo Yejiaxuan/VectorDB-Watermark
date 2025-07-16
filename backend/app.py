@@ -1,10 +1,12 @@
 import os
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from fastapi import FastAPI, HTTPException, Query, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import json
-from .models import DBParams, WatermarkEmbedRequest, WatermarkExtractRequest, MilvusDBParams, MilvusWatermarkEmbedRequest, MilvusWatermarkExtractRequest
+from .models import DBParams, WatermarkEmbedRequest, WatermarkExtractRequest, MilvusDBParams, \
+    MilvusWatermarkEmbedRequest, MilvusWatermarkExtractRequest
 from database.pgvector.client import PGVectorManager
 from database.milvus.client import MilvusManager
 
@@ -17,13 +19,13 @@ app.add_middleware(
 )
 
 # 创建管理器实例
-database_manager = PGVectorManager(temp_dir="temp_files")
+pgvector_manager = PGVectorManager(temp_dir="temp_files")
 milvus_manager = MilvusManager(temp_dir="temp_files")
 
 
 @app.post("/api/connect")
 async def connect_db(params: DBParams):
-    result = database_manager.test_connection(params.dict())
+    result = pgvector_manager.test_connection(params.dict())
     if result["success"]:
         return result
     else:
@@ -35,7 +37,7 @@ async def list_tables(params: DBParams):
     """
     列出 public schema 下所有表名
     """
-    result = database_manager.list_tables(params.dict())
+    result = pgvector_manager.list_tables(params.dict())
     if result["success"]:
         return {"tables": result["tables"]}
     else:
@@ -50,7 +52,7 @@ async def list_columns(
     """
     列出指定表中所有 pgvector 类型的列
     """
-    result = database_manager.list_vector_columns(params.dict(), table)
+    result = pgvector_manager.list_vector_columns(params.dict(), table)
     if result["success"]:
         return {"columns": result["columns"]}
     else:
@@ -65,7 +67,7 @@ async def list_primary_keys(
     """
     列出指定表的主键列
     """
-    result = database_manager.list_primary_keys(params.dict(), table)
+    result = pgvector_manager.list_primary_keys(params.dict(), table)
     if result["success"]:
         return {"keys": result["keys"]}
     else:
@@ -77,7 +79,7 @@ async def embed_watermark_api(request: WatermarkEmbedRequest):
     """
     在指定表的向量列中嵌入水印，不生成ID文件
     """
-    result = database_manager.embed_watermark_without_file(
+    result = pgvector_manager.embed_watermark_without_file(
         db_params=request.db_params,
         table=request.table,
         id_column=request.id_column,
@@ -100,7 +102,7 @@ async def extract_watermark_api(request: WatermarkExtractRequest):
     """
     从指定表的向量列中提取水印，重新计算低入度节点
     """
-    result = database_manager.extract_watermark_without_file(
+    result = pgvector_manager.extract_watermark_without_file(
         db_params=request.db_params,
         table=request.table,
         id_column=request.id_column,

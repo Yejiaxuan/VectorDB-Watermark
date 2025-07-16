@@ -14,22 +14,20 @@ import faiss
 import torch
 from pymilvus import connections, Collection, utility, FieldSchema, CollectionSchema, DataType
 from algorithms.deep_learning.watermark import VectorWatermark
+from configs.config import Config
 
-# —— 核心参数 —— #
-DIM = 384  # 向量维度
-M = 16  # HNSW参数
-EF_CONSTRUCTION = 200  # HNSW构建参数
-EF_SEARCH = 50  # HNSW搜索参数
-MODEL_PATH = os.getenv('WM_MODEL_PATH', os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                                                     'algorithms/deep_learning/results/vector_val/best.pt'))  # 模型路径
+# —— 从配置文件获取参数 —— #
+DIM = Config.VEC_DIM
+M = Config.HNSW_M
+EF_CONSTRUCTION = Config.HNSW_EF_CONSTRUCTION
+EF_SEARCH = Config.HNSW_EF_SEARCH
+MODEL_PATH = os.getenv('WM_MODEL_PATH', Config.MODEL_PATH)
 
 # —— 水印参数 —— #
-MSG_LEN = 24  # 4 idx + 4 CRC + 16 payload
-BLOCK_PAYLOAD = 16  # 每块载荷比特数
-BLOCK_COUNT = 16  # 块数量
-TOTAL_VECS = 1600  # 默认使用的向量数量（已弃用，现使用embed_rate）
-DEFAULT_EMBED_RATE = 0.1  # 默认水印嵌入率10%
-# ————————————— #
+MSG_LEN = Config.MSG_LEN
+BLOCK_PAYLOAD = Config.BLOCK_PAYLOAD
+BLOCK_COUNT = Config.BLOCK_COUNT
+DEFAULT_EMBED_RATE = Config.DEFAULT_EMBED_RATE
 
 
 def crc4(bits4):
@@ -72,12 +70,12 @@ def fetch_vectors(db_params, collection_name, id_field, vector_field):
             host=db_params.get("host", "localhost"),
             port=db_params.get("port", 19530)
         )
-        
+
         collection = Collection(collection_name, using=alias)
-        
+
         # 确保集合已加载
         collection.load()
-        
+
         # 先获取ID范围
         # 查询最小和最大ID
         min_result = collection.query(
@@ -86,31 +84,31 @@ def fetch_vectors(db_params, collection_name, id_field, vector_field):
             limit=1,
             offset=0
         )
-        
+
         if not min_result:
             return [], np.array([]).reshape(0, DIM)
-        
+
         # 获取总数量（使用Milvus内置方法）
         total_count = collection.num_entities
         print(f"集合总向量数: {total_count}")
-        
+
         # 使用ID范围分批查询，避免offset限制
         batch_size = 5000  # 保守的批次大小
         all_results = []
-        
+
         # 查询所有数据，按ID排序
         current_id = 0
-        
+
         while len(all_results) < total_count:
             # 使用ID范围查询
             expr = f"{id_field} >= {current_id} and {id_field} < {current_id + batch_size}"
-            
+
             batch_results = collection.query(
                 expr=expr,
                 output_fields=[id_field, vector_field],
                 limit=batch_size
             )
-            
+
             if not batch_results:
                 # 如果没有结果，尝试下一个范围
                 current_id += batch_size
@@ -118,31 +116,31 @@ def fetch_vectors(db_params, collection_name, id_field, vector_field):
                 if current_id > total_count * 2:
                     break
                 continue
-                
+
             all_results.extend(batch_results)
-            
+
             # 更新当前ID为已查询的最大ID + 1
             max_id_in_batch = max(result[id_field] for result in batch_results)
             current_id = max_id_in_batch + 1
-            
+
             print(f"已获取 {len(all_results)}/{total_count} 个向量")
-            
+
             # 如果这批数据少于batch_size，说明可能接近结束
             if len(batch_results) < batch_size:
                 # 继续查询剩余数据
                 current_id = max_id_in_batch + 1
-        
+
         print(f"总共获取了 {len(all_results)} 个向量")
-        
+
         # 按ID排序确保顺序稳定
         all_results.sort(key=lambda x: x[id_field])
-        
+
         ids = [int(result[id_field]) for result in all_results]
         vectors = [np.array(result[vector_field], dtype=np.float32) for result in all_results]
         data = np.vstack(vectors) if vectors else np.array([]).reshape(0, DIM)
-        
+
         return ids, data
-        
+
     finally:
         connections.disconnect(alias)
 
@@ -158,17 +156,17 @@ def update_vectors(db_params, collection_name, id_field, vector_field, ids, steg
             host=db_params.get("host", "localhost"),
             port=db_params.get("port", 19530)
         )
-        
+
         collection = Collection(collection_name, using=alias)
-        
+
         # 分批删除和插入数据以避免Milvus查询限制
         batch_size = 10000  # 设置批次大小，低于16384的限制
         total_updated = 0
-        
+
         for i in range(0, len(ids), batch_size):
             batch_ids = ids[i:i + batch_size]
             batch_stegos = stegos[i:i + batch_size]
-            
+
             # 准备当前批次的数据
             batch_entities = []
             for id_val, stego in zip(batch_ids, batch_stegos):
@@ -176,23 +174,23 @@ def update_vectors(db_params, collection_name, id_field, vector_field, ids, steg
                     id_field: int(id_val),
                     vector_field: stego.tolist()
                 })
-            
+
             # 删除当前批次的旧数据
             batch_id_list = list(map(int, batch_ids))
             expr = f"{id_field} in {batch_id_list}"
             collection.delete(expr)
-            
+
             # 插入当前批次的新数据
             collection.insert(batch_entities)
             total_updated += len(batch_entities)
-            
+
             print(f"已更新 {total_updated}/{len(ids)} 个向量")
-        
+
         # 刷新所有更改
         collection.flush()
-        
+
         return total_updated
-        
+
     finally:
         connections.disconnect(alias)
 
@@ -233,13 +231,13 @@ def select_low_degree_ids_by_rate(ids: list, in_degs: dict, embed_rate: float):
     """
     # 计算需要选择的向量数量
     target_count = int(len(ids) * embed_rate)
-    
+
     # 确保至少选择BLOCK_COUNT个向量
     target_count = max(target_count, BLOCK_COUNT)
-    
+
     # 按入度排序（入度低的优先），入度相同时按ID排序确保结果稳定
     sorted_pairs = sorted([(id_, in_degs.get(id_, 0)) for id_ in ids], key=lambda x: (x[1], x[0]))
-    
+
     # 取前target_count个
     selected_pairs = sorted_pairs[:target_count]
     return [pid for pid, _ in selected_pairs]
@@ -280,7 +278,7 @@ def partition_message(orig_str: str):
     ]
 
 
-def embed_into_milvus(low_ids: list, data: np.ndarray, chunks: list, wm: VectorWatermark, 
+def embed_into_milvus(low_ids: list, data: np.ndarray, chunks: list, wm: VectorWatermark,
                       db_params, collection_name, id_field, vector_field):
     """
     按 low_ids 顺序对原始集合中的向量嵌入水印，并写回Milvus
@@ -335,14 +333,14 @@ def extract_from_milvus(db_params, collection_name, id_field, vector_field, low_
             host=db_params.get("host", "localhost"),
             port=db_params.get("port", 19530)
         )
-        
+
         collection = Collection(collection_name, using=alias)
         collection.load()
-        
+
         # 分批查询指定ID的向量以避免Milvus查询限制
         batch_size = 10000  # 设置批次大小，低于16384的限制
         all_results = []
-        
+
         for i in range(0, len(low_ids), batch_size):
             batch_ids = low_ids[i:i + batch_size]
             expr = f"{id_field} in {batch_ids}"
@@ -351,10 +349,10 @@ def extract_from_milvus(db_params, collection_name, id_field, vector_field, low_
                 output_fields=[id_field, vector_field]
             )
             all_results.extend(batch_results)
-        
+
         # 按ID排序确保顺序一致
         all_results.sort(key=lambda x: x[id_field])
-        
+
         rec_payloads = {b: [] for b in range(BLOCK_COUNT)}
         device = wm.device
 
@@ -376,12 +374,13 @@ def extract_from_milvus(db_params, collection_name, id_field, vector_field, low_
             rec_payloads[blk].append(np.array(payload, dtype=int))
 
         return rec_payloads
-        
+
     finally:
         connections.disconnect(alias)
 
 
-def backup_vectors(db_params, collection_name, id_field, vector_field, low_ids, file_path='original_vectors_backup.npz'):
+def backup_vectors(db_params, collection_name, id_field, vector_field, low_ids,
+                   file_path='original_vectors_backup.npz'):
     """
     备份原始向量
     """
@@ -392,14 +391,14 @@ def backup_vectors(db_params, collection_name, id_field, vector_field, low_ids, 
             host=db_params.get("host", "localhost"),
             port=db_params.get("port", 19530)
         )
-        
+
         collection = Collection(collection_name, using=alias)
         collection.load()
-        
+
         # 分批查询指定ID的向量以避免Milvus查询限制
         batch_size = 10000  # 设置批次大小，低于16384的限制
         backup_data = {}
-        
+
         for i in range(0, len(low_ids), batch_size):
             batch_ids = low_ids[i:i + batch_size]
             expr = f"{id_field} in {batch_ids}"
@@ -407,18 +406,19 @@ def backup_vectors(db_params, collection_name, id_field, vector_field, low_ids, 
                 expr=expr,
                 output_fields=[id_field, vector_field]
             )
-            
+
             for result in batch_results:
                 backup_data[str(result[id_field])] = np.array(result[vector_field], dtype=np.float32)
 
         np.savez(file_path, **backup_data)
         return len(backup_data)
-        
+
     finally:
         connections.disconnect(alias)
 
 
-def embed_watermark(db_params, collection_name, id_field, vector_field, message, embed_rate=None, total_vecs=None, ids_file=None):
+def embed_watermark(db_params, collection_name, id_field, vector_field, message, embed_rate=None, total_vecs=None,
+                    ids_file=None):
     """
     嵌入水印流程 - 使用嵌入率选择向量
     
@@ -438,7 +438,7 @@ def embed_watermark(db_params, collection_name, id_field, vector_field, message,
     # 参数处理：优先使用embed_rate
     if embed_rate is None:
         embed_rate = DEFAULT_EMBED_RATE
-    
+
     if not (0 < embed_rate <= 1):
         return {"success": False, "error": f"水印嵌入率必须在(0,1]范围内，当前值：{embed_rate}"}
 
@@ -516,7 +516,7 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, embed_
     # 参数处理
     if embed_rate is None:
         embed_rate = DEFAULT_EMBED_RATE
-    
+
     # 1) 如果提供了ID文件且文件存在，则使用文件中的ID列表
     low_ids = None
     if ids_file and os.path.exists(ids_file):
@@ -526,21 +526,21 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, embed_
         except Exception as e:
             print(f"加载ID文件失败，将重新计算: {str(e)}")
             low_ids = None
-    
+
     # 2) 如果没有有效的ID列表，则重新计算
     if low_ids is None:
         try:
             # 获取所有向量数据
             ids, data = fetch_vectors(db_params, collection_name, id_field, vector_field)
-            
+
             # 构建索引并计算入度
             idx = build_hnsw_index(data.copy())
             in_deg = compute_in_degrees(idx, ids)
-            
+
             # 使用嵌入率选择向量
             low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate)
             print(f"重新计算得到{len(low_ids)}个低入度向量ID")
-            
+
         except Exception as e:
             return {"success": False, "error": f"重新计算低入度向量ID失败: {str(e)}"}
 
@@ -616,4 +616,4 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, embed_
             "stats": stats_info  # 添加统计信息以便分析
         }
     except Exception as e:
-        return {"success": False, "error": f"恢复消息失败: {str(e)}"} 
+        return {"success": False, "error": f"恢复消息失败: {str(e)}"}
