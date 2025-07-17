@@ -1,11 +1,41 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
+import math
 from pathlib import Path
 from typing import Union, Tuple, Dict, Optional
 
 from .encoder import AdvVectorEncoder
 from .decoder import AdvVectorDecoder
+
+
+def get_adaptive_model_params(vec_dim: int, msg_len: int):
+    base_capacity = vec_dim * msg_len  # 信息容量基准
+
+    # 自适应计算模型深度 (6-12层)
+    # 低维向量需要更深的网络来提取特征
+    depth = max(6, min(12, int(6 + 4 * (256 / max(vec_dim, 64)))))
+
+    # 自适应计算隐层倍数 (4-8倍)
+    # 确保隐层大小至少为消息长度的16倍以提供足够表达能力
+    min_hidden = msg_len * 16
+    hidden_mul = max(4, min(8, int(min_hidden / vec_dim) + 2))
+
+    # 自适应计算扰动强度
+    # 低维向量需要更小的扰动以保持稳定性
+    delta_scale = max(0.01, min(0.03, 0.02 * math.sqrt(vec_dim / 256)))
+
+    # 自适应计算dropout率
+    # 低维向量用更少dropout避免欠拟合
+    dropout = max(0.02, min(0.15, 0.1 * (vec_dim / 384)))
+
+    return {
+        'depth': depth,
+        'hidden_mul': hidden_mul,
+        'delta_scale': delta_scale,
+        'dropout': dropout,
+        'capacity_ratio': base_capacity / (vec_dim * vec_dim)  # 用于后续调整
+    }
 
 
 class VectorWatermark:
@@ -36,9 +66,32 @@ class VectorWatermark:
         self.vec_dim = vec_dim
         self.msg_len = msg_len
 
-        # 初始化模型
-        self.encoder = AdvVectorEncoder(vec_dim, msg_len)
-        self.decoder = AdvVectorDecoder(vec_dim, msg_len)
+        # 使用与训练时完全相同的自适应参数计算
+        model_params = get_adaptive_model_params(vec_dim, msg_len)
+        self.depth = model_params['depth']
+        self.hidden_mul = model_params['hidden_mul']
+        self.delta_scale = model_params['delta_scale']
+        self.p_drop = model_params['dropout']
+
+        print(f"🔧 自适应参数配置 (维度: {vec_dim}):")
+        print(f"  模型深度: {self.depth}, 隐层倍数: {self.hidden_mul}")
+        print(f"  扰动强度: {self.delta_scale:.4f}, Dropout: {self.p_drop:.3f}")
+
+        # 使用计算出的参数初始化模型
+        self.encoder = AdvVectorEncoder(
+            self.vec_dim,
+            self.msg_len,
+            depth=self.depth,
+            hidden_mul=self.hidden_mul,
+            delta_scale=self.delta_scale
+        )
+        self.decoder = AdvVectorDecoder(
+            self.vec_dim,
+            self.msg_len,
+            depth=self.depth,
+            hidden_mul=self.hidden_mul,
+            p_drop=self.p_drop
+        )
 
         # 将模型移至指定设备
         self.encoder.to(self.device)
@@ -70,9 +123,12 @@ class VectorWatermark:
         if 'enc' not in checkpoint or 'dec' not in checkpoint:
             raise ValueError(f"模型文件格式错误，缺少'enc'或'dec'键")
 
-        self.encoder.load_state_dict(checkpoint['enc'])
-        self.decoder.load_state_dict(checkpoint['dec'])
-        print(f"成功加载模型权重: {model_path}")
+        try:
+            self.encoder.load_state_dict(checkpoint['enc'])
+            self.decoder.load_state_dict(checkpoint['dec'])
+            print(f"成功加载模型权重: {model_path}")
+        except Exception as e:
+            raise RuntimeError(f"加载模型权重失败: {str(e)}")
 
     def generate_message(self, batch_size: int = 1) -> torch.Tensor:
         """
@@ -273,7 +329,7 @@ class VectorWatermark:
             return message.cpu().numpy()
         return message
 
-    def verify_message(self, message: torch.Tensor) -> bool:
+    def verify_message(self, message: torch.Tensor) -> Union[bool, list]:
         """
         验证消息的CRC校验和是否正确
         
