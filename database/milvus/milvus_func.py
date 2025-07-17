@@ -17,11 +17,9 @@ from algorithms.deep_learning.watermark import VectorWatermark
 from configs.config import Config
 
 # —— 从配置文件获取参数 —— #
-DIM = Config.VEC_DIM
 M = Config.HNSW_M
 EF_CONSTRUCTION = Config.HNSW_EF_CONSTRUCTION
 EF_SEARCH = Config.HNSW_EF_SEARCH
-MODEL_PATH = os.getenv('WM_MODEL_PATH', Config.MODEL_PATH)
 
 # —— 水印参数 —— #
 MSG_LEN = Config.MSG_LEN
@@ -58,7 +56,7 @@ def bits_to_text(bits: np.ndarray) -> str:
         return by.tobytes().decode('utf-8', errors='ignore')
 
 
-def fetch_vectors(db_params, collection_name, id_field, vector_field):
+def fetch_vectors(db_params, collection_name, id_field, vector_field, vec_dim):
     """
     从Milvus集合中获取所有 (id, vector)
     使用ID范围查询避免offset+limit限制
@@ -86,7 +84,7 @@ def fetch_vectors(db_params, collection_name, id_field, vector_field):
         )
 
         if not min_result:
-            return [], np.array([]).reshape(0, DIM)
+            return [], np.array([]).reshape(0, vec_dim)
 
         # 获取总数量（使用Milvus内置方法）
         total_count = collection.num_entities
@@ -137,7 +135,7 @@ def fetch_vectors(db_params, collection_name, id_field, vector_field):
 
         ids = [int(result[id_field]) for result in all_results]
         vectors = [np.array(result[vector_field], dtype=np.float32) for result in all_results]
-        data = np.vstack(vectors) if vectors else np.array([]).reshape(0, DIM)
+        data = np.vstack(vectors) if vectors else np.array([]).reshape(0, vec_dim)
 
         return ids, data
 
@@ -195,11 +193,11 @@ def update_vectors(db_params, collection_name, id_field, vector_field, ids, steg
         connections.disconnect(alias)
 
 
-def build_hnsw_index(data: np.ndarray):
+def build_hnsw_index(data: np.ndarray, vec_dim: int):
     """
     构建HNSW索引（在嵌入水印时使用）
     """
-    idx = faiss.IndexHNSWFlat(DIM, M)
+    idx = faiss.IndexHNSWFlat(vec_dim, M)
     idx.hnsw.efConstruction = EF_CONSTRUCTION
     idx.hnsw.efSearch = EF_SEARCH
     idx.add(data)
@@ -417,7 +415,7 @@ def backup_vectors(db_params, collection_name, id_field, vector_field, low_ids,
         connections.disconnect(alias)
 
 
-def embed_watermark(db_params, collection_name, id_field, vector_field, message, embed_rate=None, total_vecs=None,
+def embed_watermark(db_params, collection_name, id_field, vector_field, message, vec_dim, embed_rate=None, total_vecs=None,
                     ids_file=None):
     """
     嵌入水印流程 - 使用嵌入率选择向量
@@ -428,6 +426,7 @@ def embed_watermark(db_params, collection_name, id_field, vector_field, message,
         id_field: 主键字段名
         vector_field: 向量字段名
         message: 水印消息
+        vec_dim: 向量维度
         embed_rate: 水印嵌入率（0-1之间的浮点数），优先使用此参数
         total_vecs: 兼容性参数，已弃用
         ids_file: ID文件路径（可选）
@@ -451,13 +450,13 @@ def embed_watermark(db_params, collection_name, id_field, vector_field, message,
 
     # 2) 拉原始集合向量
     try:
-        ids, data = fetch_vectors(db_params, collection_name, id_field, vector_field)
+        ids, data = fetch_vectors(db_params, collection_name, id_field, vector_field, vec_dim)
     except Exception as e:
         return {"success": False, "error": f"获取向量数据失败: {str(e)}"}
 
     # 3) 构建索引和生成ID列表
     try:
-        idx = build_hnsw_index(data.copy())
+        idx = build_hnsw_index(data.copy(), vec_dim)
         in_deg = compute_in_degrees(idx, ids)
 
         # 使用嵌入率选择向量
@@ -478,7 +477,8 @@ def embed_watermark(db_params, collection_name, id_field, vector_field, message,
 
     # 4) 嵌入并写回原始集合
     try:
-        wm = VectorWatermark(vec_dim=DIM, msg_len=MSG_LEN, model_path=MODEL_PATH)
+        model_path = Config.get_model_path(vec_dim)
+        wm = VectorWatermark(vec_dim=vec_dim, msg_len=MSG_LEN, model_path=model_path)
         updated = embed_into_milvus(low_ids, data, chunks, wm, db_params, collection_name, id_field, vector_field)
 
         # 计算实际嵌入率
@@ -498,7 +498,7 @@ def embed_watermark(db_params, collection_name, id_field, vector_field, message,
         return {"success": False, "error": f"嵌入水印失败: {str(e)}"}
 
 
-def extract_watermark(db_params, collection_name, id_field, vector_field, embed_rate=None, ids_file=None):
+def extract_watermark(db_params, collection_name, id_field, vector_field, vec_dim, embed_rate=None, ids_file=None):
     """
     提取水印流程 - 重新计算低入度节点，不依赖ID文件
     
@@ -507,6 +507,7 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, embed_
         collection_name: 集合名
         id_field: 主键字段名
         vector_field: 向量字段名
+        vec_dim: 向量维度
         embed_rate: 水印嵌入率（0-1之间的浮点数），如果提供则使用此参数重新计算
         ids_file: ID文件路径（可选，用于向后兼容）
         
@@ -531,10 +532,10 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, embed_
     if low_ids is None:
         try:
             # 获取所有向量数据
-            ids, data = fetch_vectors(db_params, collection_name, id_field, vector_field)
+            ids, data = fetch_vectors(db_params, collection_name, id_field, vector_field, vec_dim)
 
             # 构建索引并计算入度
-            idx = build_hnsw_index(data.copy())
+            idx = build_hnsw_index(data.copy(), vec_dim)
             in_deg = compute_in_degrees(idx, ids)
 
             # 使用嵌入率选择向量
@@ -546,7 +547,8 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, embed_
 
     # 3) 提取水印
     try:
-        wm = VectorWatermark(vec_dim=DIM, msg_len=MSG_LEN, model_path=MODEL_PATH)
+        model_path = Config.get_model_path(vec_dim)
+        wm = VectorWatermark(vec_dim=vec_dim, msg_len=MSG_LEN, model_path=model_path)
         rec = extract_from_milvus(db_params, collection_name, id_field, vector_field, low_ids, wm)
     except Exception as e:
         return {"success": False, "error": f"提取水印失败: {str(e)}"}

@@ -18,11 +18,9 @@ from algorithms.deep_learning.watermark import VectorWatermark
 from configs.config import Config
 
 # —— 从配置文件获取参数 —— #
-DIM = Config.VEC_DIM
 M = Config.HNSW_M
 EF_CONSTRUCTION = Config.HNSW_EF_CONSTRUCTION
 EF_SEARCH = Config.HNSW_EF_SEARCH
-MODEL_PATH = os.getenv('WM_MODEL_PATH', Config.MODEL_PATH)
 
 # —— 水印参数 —— #
 MSG_LEN = Config.MSG_LEN
@@ -95,14 +93,16 @@ def update_vectors(db_params, table_name, id_col, emb_col, ids, stegos):
     return len(records)
 
 
-def build_hnsw_index(data: np.ndarray):
+def build_hnsw_index(data: np.ndarray, vec_dim: int):
     """
     构建HNSW索引（在嵌入水印时使用）
     """
-    idx = faiss.IndexHNSWFlat(DIM, M)
+    idx = faiss.IndexHNSWFlat(vec_dim, M)
     idx.hnsw.efConstruction = EF_CONSTRUCTION
     idx.hnsw.efSearch = EF_SEARCH
-    idx.add(data)
+    # 确保数据类型为float32
+    data_float32 = data.astype(np.float32)
+    idx.add(data_float32)
     return idx
 
 
@@ -285,7 +285,7 @@ def backup_vectors(db_params, table_name, id_col, emb_col, low_ids, file_path='o
     return len(backup_data)
 
 
-def embed_watermark(db_params, table_name, id_col, emb_col, message, embed_rate=None, total_vecs=None, ids_file=None):
+def embed_watermark(db_params, table_name, id_col, emb_col, message, vec_dim, embed_rate=None, total_vecs=None, ids_file=None):
     """
     嵌入水印流程 - 使用指定嵌入率选择低入度向量，不保存ID文件
     
@@ -321,7 +321,7 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, embed_rate=
 
     # 3) 构建索引和生成ID列表
     try:
-        idx = build_hnsw_index(data.copy())
+        idx = build_hnsw_index(data.copy(), vec_dim)
         in_deg = compute_in_degrees(idx, ids)
 
         # 按嵌入率选择低入度向量
@@ -339,7 +339,8 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, embed_rate=
 
     # 4) 嵌入并写回原始列
     try:
-        wm = VectorWatermark(vec_dim=DIM, msg_len=MSG_LEN, model_path=MODEL_PATH)
+        model_path = Config.get_model_path(vec_dim)
+        wm = VectorWatermark(vec_dim=vec_dim, msg_len=MSG_LEN, model_path=model_path)
         updated = embed_into_db(low_ids, data, chunks, wm, db_params, table_name, id_col, emb_col)
 
         # 计算实际嵌入率
@@ -358,7 +359,7 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, embed_rate=
         return {"success": False, "error": f"嵌入水印失败: {str(e)}"}
 
 
-def extract_watermark(db_params, table_name, id_col, emb_col, embed_rate=None, ids_file=None):
+def extract_watermark(db_params, table_name, id_col, emb_col, vec_dim, embed_rate=None, ids_file=None):
     """
     提取水印流程 - 重新计算低入度节点并使用纯统计方法
     
@@ -383,7 +384,7 @@ def extract_watermark(db_params, table_name, id_col, emb_col, embed_rate=None, i
         ids, data = fetch_vectors(db_params, table_name, id_col, emb_col)
 
         # 重新构建索引并计算入度
-        idx = build_hnsw_index(data.copy())
+        idx = build_hnsw_index(data.copy(), vec_dim)
         in_deg = compute_in_degrees(idx, ids)
 
         # 按嵌入率选择低入度向量（与嵌入时使用相同策略）
@@ -402,7 +403,8 @@ def extract_watermark(db_params, table_name, id_col, emb_col, embed_rate=None, i
 
     # 2) 提取水印 - 对所有低入度节点进行解码
     try:
-        wm = VectorWatermark(vec_dim=DIM, msg_len=MSG_LEN, model_path=MODEL_PATH)
+        model_path = Config.get_model_path(vec_dim)
+        wm = VectorWatermark(vec_dim=vec_dim, msg_len=MSG_LEN, model_path=model_path)
 
         # 连接数据库获取低入度向量
         conn = psycopg2.connect(**db_params)

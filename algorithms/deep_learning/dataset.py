@@ -3,14 +3,21 @@ from torch.utils.data import Dataset
 
 class VectorWatermarkSet(Dataset):
     """
-    cover_vectors.npy :  shape = (N , 384) , dtype = float32 / float16
+    从数据库读取的向量水印数据集
+    vectors : shape = (N, D), dtype = float32
     """
-    def __init__(self, npy_path: str, msg_len: int, mmap: bool = True):
-        self.vecs = np.load(npy_path, mmap_mode="r" if mmap else None)
-        assert self.vecs.ndim == 2, "expect (N,D)"
+    def __init__(self, vectors: np.ndarray, msg_len: int):
+        """
+        Args:
+            vectors: 从数据库获取的向量数据 (N, D)
+            msg_len: 消息长度，通常为24
+        """
+        assert isinstance(vectors, np.ndarray), "vectors should be numpy array"
+        assert vectors.ndim == 2, "expect (N,D)"
+        self.vecs = vectors.astype(np.float32)
         self.msg_len = msg_len
 
-    def __len__(self):                 # → N
+    def __len__(self):
         return self.vecs.shape[0]
 
     def __getitem__(self, idx):

@@ -72,6 +72,93 @@ export async function fetchPrimaryKeys(dbParams, table) {
 }
 
 /**
+ * 获取向量维度
+ * @param {{host,port,dbname,user,password}} dbParams
+ * @param {string} table
+ * @param {string} vectorColumn
+ * @returns {Promise<{dimension: number}>}
+ */
+export async function getVectorDimension(dbParams, table, vectorColumn) {
+  const res = await fetch(`/api/get_vector_dimension?table=${encodeURIComponent(table)}&vector_column=${encodeURIComponent(vectorColumn)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dbParams),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '获取向量维度失败');
+  }
+  return res.json();
+}
+
+/**
+ * 检查模型是否存在
+ * @param {number} dimension
+ * @returns {Promise<{exists: boolean, model_path: string, dimension: number}>}
+ */
+export async function checkModel(dimension) {
+  const res = await fetch(`/api/check_model?dimension=${dimension}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '检查模型失败');
+  }
+  return res.json();
+}
+
+/**
+ * 训练模型
+ * @param {{host,port,dbname,user,password}} dbParams
+ * @param {string} table
+ * @param {string} vectorColumn
+ * @param {number} dimension
+ * @param {Object} trainParams - 训练参数
+ * @param {number} trainParams.epochs - 训练轮数
+ * @param {number} trainParams.learning_rate - 学习率
+ * @param {number} trainParams.batch_size - 批处理大小
+ * @param {number} trainParams.val_ratio - 验证集比例
+ * @returns {Promise<{task_id: string, message: string, dimension: number, train_params: Object}>}
+ */
+export async function trainModel(dbParams, table, vectorColumn, dimension, trainParams = {}) {
+  const {
+    epochs = 100,
+    learning_rate = 0.0003,
+    batch_size = 8192,
+    val_ratio = 0.15
+  } = trainParams;
+
+  const res = await fetch(`/api/train_model?table=${encodeURIComponent(table)}&vector_column=${encodeURIComponent(vectorColumn)}&dimension=${dimension}&epochs=${epochs}&learning_rate=${learning_rate}&batch_size=${batch_size}&val_ratio=${val_ratio}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dbParams),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '启动训练失败');
+  }
+  return res.json();
+}
+
+/**
+ * 获取训练状态
+ * @param {string} taskId
+ * @returns {Promise<{status: string, message: string, progress: number}>}
+ */
+export async function getTrainingStatus(taskId) {
+  const res = await fetch(`/api/training_status/${taskId}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '获取训练状态失败');
+  }
+  return res.json();
+}
+
+/**
  * 在指定表的向量列中嵌入水印
  * @param {{host,port,dbname,user,password}} dbParams 数据库连接参数
  * @param {string} table 表名
@@ -281,6 +368,59 @@ export async function extractMilvusWatermark(dbParams, collectionName, idField, 
     throw new Error(err.detail || 'Milvus水印提取失败');
   }
   
+  return res.json();
+}
+
+/**
+ * 获取Milvus向量维度
+ * @param {{host: string, port: number}} dbParams
+ * @param {string} collectionName
+ * @param {string} vectorField
+ * @returns {Promise<{dimension: number}>}
+ */
+export async function getMilvusVectorDimension(dbParams, collectionName, vectorField) {
+  const res = await fetch(`/api/milvus/get_vector_dimension?collection_name=${encodeURIComponent(collectionName)}&vector_field=${encodeURIComponent(vectorField)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dbParams),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '获取Milvus向量维度失败');
+  }
+  return res.json();
+}
+
+/**
+ * 训练Milvus模型
+ * @param {{host: string, port: number}} dbParams
+ * @param {string} collectionName
+ * @param {string} vectorField
+ * @param {number} dimension
+ * @param {Object} trainParams - 训练参数
+ * @param {number} trainParams.epochs - 训练轮数
+ * @param {number} trainParams.learning_rate - 学习率
+ * @param {number} trainParams.batch_size - 批处理大小
+ * @param {number} trainParams.val_ratio - 验证集比例
+ * @returns {Promise<{task_id: string, message: string, dimension: number, train_params: Object}>}
+ */
+export async function trainMilvusModel(dbParams, collectionName, vectorField, dimension, trainParams = {}) {
+  const {
+    epochs = 100,
+    learning_rate = 0.0003,
+    batch_size = 8192,
+    val_ratio = 0.15
+  } = trainParams;
+
+  const res = await fetch(`/api/milvus/train_model?collection_name=${encodeURIComponent(collectionName)}&vector_field=${encodeURIComponent(vectorField)}&dimension=${dimension}&epochs=${epochs}&learning_rate=${learning_rate}&batch_size=${batch_size}&val_ratio=${val_ratio}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dbParams),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '启动Milvus训练失败');
+  }
   return res.json();
 }
 

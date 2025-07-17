@@ -9,9 +9,6 @@ import os
 class Config:
     """统一配置类"""
 
-    # ==================== 通用向量参数 ====================
-    VEC_DIM = 384  # 向量维度
-
     # ==================== HNSW参数 ====================
     HNSW_M = 16  # HNSW M参数 (连接数)
     HNSW_EF_CONSTRUCTION = 200  # HNSW构建时的ef参数
@@ -37,12 +34,39 @@ class Config:
     TEST_BATCH_SIZE = 128  # 测试批处理大小
 
     # ==================== 路径配置 ====================
-    DATA_PATH = "algorithms/deep_learning/dataset/qa/nq_qa_combined_384d.npy"
     RESULTS_DIR = "algorithms/deep_learning/results"
-    MODEL_PATH = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)),
-        'algorithms/deep_learning/results/vector_val/best.pt'
-    )
+
+    @staticmethod
+    def get_model_path(vec_dim: int) -> str:
+        """
+        根据向量维度生成模型路径
+        
+        Args:
+            vec_dim: 向量维度
+            
+        Returns:
+            模型文件路径
+        """
+        return os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            f'algorithms/deep_learning/results/vector_{vec_dim}d/best.pt'
+        )
+    
+    @staticmethod
+    def get_results_dir(vec_dim: int) -> str:
+        """
+        根据向量维度生成结果目录路径
+        
+        Args:
+            vec_dim: 向量维度
+            
+        Returns:
+            结果目录路径
+        """
+        return os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            f'algorithms/deep_learning/results/vector_{vec_dim}d'
+        )
 
 
 config = Config()

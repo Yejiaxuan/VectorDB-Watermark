@@ -7,7 +7,11 @@ import {
   fetchColumns,
   fetchPrimaryKeys,
   embedWatermark,
-  extractWatermark
+  extractWatermark,
+  getVectorDimension,
+  checkModel,
+  trainModel,
+  getTrainingStatus
 } from '../api';
 
 export default function PgvectorPage() {
@@ -35,6 +39,35 @@ export default function PgvectorPage() {
   const [primaryKey, setPrimaryKey] = useState('');
   const [columns, setColumns] = useState([]);
   const [column, setColumn] = useState('');
+
+  // —— 向量维度和模型状态 ——
+  const [vectorDimension, setVectorDimension] = useState(null);
+  const [modelExists, setModelExists] = useState(false);
+  const [modelChecking, setModelChecking] = useState(false);
+  const [modelPath, setModelPath] = useState('');
+
+  // —— 训练相关状态 ——
+  const [trainingTaskId, setTrainingTaskId] = useState('');
+  const [trainingStatus, setTrainingStatus] = useState('');
+  const [trainingMessage, setTrainingMessage] = useState('');
+  const [isTraining, setIsTraining] = useState(false);
+  const [trainingProgress, setTrainingProgress] = useState(0);
+  const [currentEpoch, setCurrentEpoch] = useState(0);
+  const [totalEpochs, setTotalEpochs] = useState(100);
+  const [trainingMetrics, setTrainingMetrics] = useState({
+    train_loss: 0,
+    train_ber: 1,
+    val_loss: 0,
+    val_ber: 1
+  });
+  const [finalResults, setFinalResults] = useState(null);
+  const [trainingParams, setTrainingParams] = useState({
+    epochs: 100,
+    learning_rate: 0.0003,
+    batch_size: 8192,
+    val_ratio: 0.15
+  });
+  const [showTrainingParams, setShowTrainingParams] = useState(false);
 
   // —— Tab 控制 ——
   const [activeTab, setActiveTab] = useState('embed');
@@ -103,6 +136,115 @@ export default function PgvectorPage() {
     }
   };
 
+  // 检查向量维度和模型
+  const checkVectorDimensionAndModel = async () => {
+    if (!connected || !table || !column) return;
+    
+    setModelChecking(true);
+    try {
+      // 获取向量维度
+      const dimResult = await getVectorDimension({ host: ip, port, dbname, user, password }, table, column);
+      const dimension = dimResult.dimension;
+      setVectorDimension(dimension);
+      
+      // 检查模型是否存在
+      const modelResult = await checkModel(dimension);
+      setModelExists(modelResult.exists);
+      setModelPath(modelResult.model_path);
+      
+      if (modelResult.exists) {
+        showToast(`检测到 ${dimension} 维向量，对应模型已存在`, 'success');
+      } else {
+        showToast(`检测到 ${dimension} 维向量，需要训练对应模型`, 'warning');
+      }
+    } catch (err) {
+      showToast(`检查失败：${err.message}`, 'error');
+      setVectorDimension(null);
+      setModelExists(false);
+    } finally {
+      setModelChecking(false);
+    }
+  };
+
+  // 启动训练
+  const handleTrainModel = async () => {
+    if (!connected || !table || !column || !vectorDimension) return;
+    
+    try {
+      const result = await trainModel(
+        { host: ip, port, dbname, user, password }, 
+        table, 
+        column, 
+        vectorDimension,
+        trainingParams
+      );
+      setTrainingTaskId(result.task_id);
+      setIsTraining(true);
+      setTrainingStatus('starting');
+      setTrainingMessage(result.message);
+      setTrainingProgress(0);
+      setCurrentEpoch(0);
+      setTotalEpochs(trainingParams.epochs);
+      setFinalResults(null);
+      showToast('训练任务已启动', 'success');
+      
+      // 开始轮询训练状态
+      pollTrainingStatus(result.task_id);
+    } catch (err) {
+      showToast(`启动训练失败：${err.message}`, 'error');
+    }
+  };
+
+  // 轮询训练状态
+  const pollTrainingStatus = async (taskId) => {
+    const interval = setInterval(async () => {
+      try {
+        const status = await getTrainingStatus(taskId);
+        setTrainingStatus(status.status);
+        setTrainingMessage(status.message || '');
+        setTrainingProgress(status.progress || 0);
+        setCurrentEpoch(status.current_epoch || 0);
+        setTotalEpochs(status.total_epochs || trainingParams.epochs);
+        
+        if (status.metrics) {
+          setTrainingMetrics(status.metrics);
+        }
+        
+        if (status.status === 'completed') {
+          setIsTraining(false);
+          setModelExists(true);
+          setFinalResults({
+            best_ber: status.best_ber,
+            performance_level: status.performance_level,
+            suggestions: status.suggestions || [],
+            final_metrics: status.final_metrics,
+            train_params: status.train_params
+          });
+          
+          // 根据性能水平显示不同的消息
+          const performanceMessages = {
+            excellent: '🎉 训练效果极佳！',
+            good: '👍 训练效果良好！', 
+            poor: '⚠️ 训练效果不佳，建议调整参数重新训练'
+          };
+          
+          showToast(
+            `${performanceMessages[status.performance_level]} ${status.message}`, 
+            status.performance_level === 'poor' ? 'warning' : 'success'
+          );
+          clearInterval(interval);
+        } else if (status.status === 'failed') {
+          setIsTraining(false);
+          showToast(`训练失败：${status.error}`, 'error');
+          clearInterval(interval);
+        }
+      } catch (err) {
+        console.error('获取训练状态失败:', err);
+        clearInterval(interval);
+      }
+    }, 2000); // 每2秒轮询一次
+  };
+
   // 拉表列表
   useEffect(() => {
     if (connected) {
@@ -114,6 +256,7 @@ export default function PgvectorPage() {
         .catch(err => console.error('拉表失败', err));
     } else {
       setTables([]); setTable(''); setPrimaryKeys([]); setPrimaryKey(''); setColumns([]); setColumn('');
+      setVectorDimension(null); setModelExists(false);
     }
   }, [connected]);
 
@@ -121,6 +264,8 @@ export default function PgvectorPage() {
   useEffect(() => {
     setEmbedResult('');
     setExtractResult('');
+    setVectorDimension(null);
+    setModelExists(false);
   }, [table, column]);
 
   // 当选择表后获取主键列
@@ -152,6 +297,13 @@ export default function PgvectorPage() {
       setColumns([]); setColumn('');
     }
   }, [connected, table]);
+
+  // 当选择列后自动检查维度和模型
+  useEffect(() => {
+    if (column) {
+      checkVectorDimensionAndModel();
+    }
+  }, [column]);
 
   // 嵌入水印
   const handleEmbed = async () => {
@@ -504,6 +656,297 @@ export default function PgvectorPage() {
                 </div>
               </div>
 
+              {/* 向量维度和模型状态 */}
+              {vectorDimension && (
+                <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                    <svg className="w-5 h-5 text-purple-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    模型状态
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    {/* 向量维度显示 */}
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center">
+                        <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a4 4 0 001-4V5z" />
+                        </svg>
+                        <span className="text-sm font-medium text-gray-700">向量维度</span>
+                      </div>
+                      <span className="text-lg font-bold text-blue-600">{vectorDimension}维</span>
+                    </div>
+
+                    {/* 模型状态显示 */}
+                    <div className={`p-4 rounded-lg border-2 ${
+                      modelExists 
+                        ? 'bg-green-50 border-green-200' 
+                        : 'bg-orange-50 border-orange-200'
+                    }`}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start">
+                          <div className={`w-3 h-3 rounded-full mt-1 mr-3 ${
+                            modelExists ? 'bg-green-500' : 'bg-orange-500'
+                          }`}></div>
+                          <div>
+                            <h4 className={`font-medium ${
+                              modelExists ? 'text-green-800' : 'text-orange-800'
+                            }`}>
+                              {modelExists ? '模型已就绪' : '需要训练模型'}
+                            </h4>
+                            <p className={`text-sm mt-1 ${
+                              modelExists ? 'text-green-600' : 'text-orange-600'
+                            }`}>
+                              {modelExists 
+                                ? `${vectorDimension}维向量的水印模型已存在，可以直接进行水印操作`
+                                : `尚未检测到${vectorDimension}维向量的水印模型，需要先训练模型`
+                              }
+                            </p>
+                            {modelExists && modelPath && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                模型路径: {modelPath}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 训练按钮和状态 */}
+                      {!modelExists && (
+                        <div className="mt-4">
+                          {!isTraining ? (
+                            <div className="space-y-4">
+                              {/* 训练参数设置按钮 */}
+                              <button
+                                onClick={() => setShowTrainingParams(!showTrainingParams)}
+                                className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors duration-150"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center">
+                                    <svg className="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                    <span className="text-sm font-medium text-gray-700">训练参数设置</span>
+                                  </div>
+                                  <svg className={`w-4 h-4 text-gray-400 transition-transform duration-150 ${
+                                    showTrainingParams ? 'rotate-180' : ''
+                                  }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                  </svg>
+                                </div>
+                              </button>
+
+                              {/* 训练参数表单 */}
+                              {showTrainingParams && (
+                                <div className="space-y-4 p-4 bg-gray-50 rounded-lg border animate-scale-in">
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">训练轮数</label>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max="1000"
+                                        value={trainingParams.epochs}
+                                        onChange={e => setTrainingParams(prev => ({
+                                          ...prev,
+                                          epochs: parseInt(e.target.value) || 100
+                                        }))}
+                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-orange-400"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">学习率</label>
+                                      <input
+                                        type="number"
+                                        min="0.0001"
+                                        max="0.01"
+                                        step="0.0001"
+                                        value={trainingParams.learning_rate}
+                                        onChange={e => setTrainingParams(prev => ({
+                                          ...prev,
+                                          learning_rate: parseFloat(e.target.value) || 0.0003
+                                        }))}
+                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-orange-400"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">批处理大小</label>
+                                      <select
+                                        value={trainingParams.batch_size}
+                                        onChange={e => setTrainingParams(prev => ({
+                                          ...prev,
+                                          batch_size: parseInt(e.target.value)
+                                        }))}
+                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-orange-400"
+                                      >
+                                        <option value={1024}>1024</option>
+                                        <option value={2048}>2048</option>
+                                        <option value={4096}>4096</option>
+                                        <option value={8192}>8192</option>
+                                        <option value={16384}>16384</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">验证集比例</label>
+                                      <select
+                                        value={trainingParams.val_ratio}
+                                        onChange={e => setTrainingParams(prev => ({
+                                          ...prev,
+                                          val_ratio: parseFloat(e.target.value)
+                                        }))}
+                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-orange-400"
+                                      >
+                                        <option value={0.1}>10%</option>
+                                        <option value={0.15}>15%</option>
+                                        <option value={0.2}>20%</option>
+                                        <option value={0.25}>25%</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <div className="text-xs text-gray-500 bg-blue-50 p-2 rounded">
+                                    💡 <strong>参数说明：</strong>训练轮数控制训练时长，学习率影响收敛速度，批处理大小影响内存使用和训练稳定性
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* 开始训练按钮 */}
+                              <button
+                                onClick={handleTrainModel}
+                                disabled={modelChecking || !vectorDimension}
+                                className="w-full bg-gradient-to-r from-orange-400 to-red-400 hover:from-orange-500 hover:to-red-500 text-white font-medium py-3 px-4 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
+                              >
+                                <div className="flex items-center justify-center">
+                                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                  </svg>
+                                  开始训练模型
+                                </div>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              {/* 训练进度条 */}
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="text-orange-700 font-medium">训练进度</span>
+                                  <span className="text-orange-600">{trainingProgress}%</span>
+                                </div>
+                                <div className="w-full bg-orange-100 rounded-full h-2">
+                                  <div 
+                                    className="bg-gradient-to-r from-orange-400 to-red-400 h-2 rounded-full transition-all duration-300 ease-out"
+                                    style={{ width: `${trainingProgress}%` }}
+                                  ></div>
+                                </div>
+                                <div className="flex items-center justify-between text-xs text-gray-600">
+                                  <span>Epoch {currentEpoch}/{totalEpochs}</span>
+                                  <span>BER: {(trainingMetrics.val_ber * 100).toFixed(2)}%</span>
+                                </div>
+                              </div>
+
+                              {/* 训练状态 */}
+                              <div className="flex items-center">
+                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-orange-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span className="text-orange-700 font-medium">正在训练模型...</span>
+                              </div>
+
+                              {/* 训练消息 */}
+                              {trainingMessage && (
+                                <p className="text-sm text-orange-600 bg-orange-100 p-3 rounded">
+                                  {trainingMessage}
+                                </p>
+                              )}
+
+                              {/* 实时指标 */}
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-blue-50 p-2 rounded">
+                                  <div className="text-blue-600 font-medium">训练损失</div>
+                                  <div className="text-blue-800">{trainingMetrics.train_loss.toFixed(4)}</div>
+                                </div>
+                                <div className="bg-green-50 p-2 rounded">
+                                  <div className="text-green-600 font-medium">验证BER</div>
+                                  <div className="text-green-800">{(trainingMetrics.val_ber * 100).toFixed(2)}%</div>
+                                </div>
+                              </div>
+
+                              {/* 任务ID */}
+                              <div className="text-xs text-gray-500">
+                                训练ID: {trainingTaskId}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 训练结果展示 */}
+                      {finalResults && (
+                        <div className="mt-4 space-y-3">
+                          <div className={`p-4 rounded-lg border-2 ${
+                            finalResults.performance_level === 'excellent' ? 'bg-green-50 border-green-200' :
+                            finalResults.performance_level === 'good' ? 'bg-blue-50 border-blue-200' :
+                            'bg-red-50 border-red-200'
+                          }`}>
+                            <div className="flex items-start">
+                              <div className={`w-3 h-3 rounded-full mt-1 mr-3 ${
+                                finalResults.performance_level === 'excellent' ? 'bg-green-500' :
+                                finalResults.performance_level === 'good' ? 'bg-blue-500' :
+                                'bg-red-500'
+                              }`}></div>
+                              <div className="flex-1">
+                                <h4 className={`font-medium ${
+                                  finalResults.performance_level === 'excellent' ? 'text-green-800' :
+                                  finalResults.performance_level === 'good' ? 'text-blue-800' :
+                                  'text-red-800'
+                                }`}>
+                                  训练完成 - {
+                                    finalResults.performance_level === 'excellent' ? '效果极佳' :
+                                    finalResults.performance_level === 'good' ? '效果良好' :
+                                    '效果不佳'
+                                  }
+                                </h4>
+                                <div className="mt-2 text-sm space-y-1">
+                                  <div>验证错误率：<span className="font-medium">{(finalResults.best_ber * 100).toFixed(2)}%</span></div>
+                                  <div>训练参数：{finalResults.train_params.epochs}轮，学习率{finalResults.train_params.learning_rate}</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 建议信息 */}
+                          {finalResults.suggestions && finalResults.suggestions.length > 0 && (
+                            <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
+                              <h5 className="text-yellow-800 font-medium text-sm mb-2">💡 优化建议</h5>
+                              <ul className="text-sm text-yellow-700 space-y-1">
+                                {finalResults.suggestions.map((suggestion, index) => (
+                                  <li key={index} className="flex items-start">
+                                    <span className="mr-2">•</span>
+                                    <span>{suggestion}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                              <button
+                                onClick={() => {
+                                  setFinalResults(null);
+                                  setModelExists(false);
+                                  setShowTrainingParams(true);
+                                }}
+                                className="mt-3 text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-3 py-1 rounded transition-colors duration-150"
+                              >
+                                重新训练
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Tab 切换和操作 */}
               <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
                 {/* Pills 切换 */}
@@ -595,7 +1038,7 @@ export default function PgvectorPage() {
 
                     <button
                       onClick={handleEmbed}
-                      disabled={!connected || !table || !primaryKey || !column || !message || message.length !== 32 || isEmbedding}
+                      disabled={!connected || !table || !primaryKey || !column || !message || message.length !== 32 || isEmbedding || !modelExists}
                       className="w-full bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
                       style={{borderRadius: '0.5rem'}}
                     >
@@ -603,7 +1046,7 @@ export default function PgvectorPage() {
                         <div className="flex items-center justify-center">
                           <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
                           嵌入中...
                         </div>
@@ -612,10 +1055,24 @@ export default function PgvectorPage() {
                           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4V4" />
                           </svg>
-                          嵌入水印
+                          {!modelExists && vectorDimension ? '需要先训练模型' : '嵌入水印'}
                         </div>
                       )}
                     </button>
+
+                    {/* 模型不存在提示 */}
+                    {!modelExists && vectorDimension && (
+                      <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg animate-scale-in">
+                        <div className="flex items-center">
+                          <svg className="w-4 h-4 text-orange-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.734 0l-7.92 13.5c-.77.833-.192 2.5 1.732 2.5z" />
+                          </svg>
+                          <p className="text-sm text-orange-700">
+                            请先训练 {vectorDimension} 维向量的水印模型，才能进行水印操作
+                          </p>
+                        </div>
+                      </div>
+                    )}
                     
                     {embedResult && (
                       <div className="p-4 bg-green-50 border border-green-200 rounded-lg animate-scale-in">
@@ -718,7 +1175,7 @@ export default function PgvectorPage() {
                       
                       <button
                         onClick={handleExtract}
-                        disabled={!connected || !table || !primaryKey || !column || isExtracting}
+                        disabled={!connected || !table || !primaryKey || !column || isExtracting || !modelExists}
                         className="bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 px-8 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
                         style={{borderRadius: '0.5rem'}}
                       >
@@ -726,7 +1183,7 @@ export default function PgvectorPage() {
                           <div className="flex items-center justify-center">
                             <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 818-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                             提取中...
                           </div>
@@ -735,7 +1192,7 @@ export default function PgvectorPage() {
                             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4V4" />
                             </svg>
-                            提取水印
+                            {!modelExists && vectorDimension ? '需要先训练模型' : '提取水印'}
                           </div>
                         )}
                       </button>
