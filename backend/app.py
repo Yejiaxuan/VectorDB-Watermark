@@ -83,7 +83,7 @@ async def list_primary_keys(
 @app.post("/api/embed_watermark")
 async def embed_watermark_api(request: WatermarkEmbedRequest):
     """
-    在指定表的向量列中嵌入水印，不生成ID文件
+    在指定表的向量列中嵌入水印，使用AES-GCM加密明文消息
     """
     result = pgvector_manager.embed_watermark(
         db_params=request.db_params,
@@ -91,7 +91,8 @@ async def embed_watermark_api(request: WatermarkEmbedRequest):
         id_column=request.id_column,
         vector_column=request.vector_column,
         message=request.message,
-        embed_rate=request.embed_rate
+        embed_rate=request.embed_rate,
+        encryption_key=request.encryption_key
     )
 
     if result["success"]:
@@ -106,14 +107,16 @@ async def embed_watermark_api(request: WatermarkEmbedRequest):
 @app.post("/api/extract-watermark")
 async def extract_watermark_api(request: WatermarkExtractRequest):
     """
-    从指定表的向量列中提取水印，重新计算低入度节点
+    从指定表的向量列中提取水印，使用AES-GCM解密得到明文消息
     """
     result = pgvector_manager.extract_watermark(
         db_params=request.db_params,
         table=request.table,
         id_column=request.id_column,
         vector_column=request.vector_column,
-        embed_rate=request.embed_rate
+        embed_rate=request.embed_rate,
+        encryption_key=request.encryption_key,
+        nonce=request.nonce
     )
 
     if result["success"]:

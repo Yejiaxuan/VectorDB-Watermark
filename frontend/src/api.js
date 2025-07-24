@@ -164,11 +164,12 @@ export async function getTrainingStatus(taskId) {
  * @param {string} table 表名
  * @param {string} idColumn 主键列名
  * @param {string} vectorColumn 向量列名
- * @param {string} message 水印消息
+ * @param {string} message 明文消息（16字节）
  * @param {number} embedRate 水印嵌入率（0-1之间的浮点数），默认0.1（10%）
+ * @param {string} encryptionKey AES-GCM加密密钥
  * @returns {Promise<{success: boolean, message: string, updated: number}>} 结果
  */
-export async function embedWatermark(dbParams, table, idColumn, vectorColumn, message, embedRate = 0.1) {
+export async function embedWatermark(dbParams, table, idColumn, vectorColumn, message, embedRate = 0.1, encryptionKey) {
   const res = await fetch('/api/embed_watermark', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -179,6 +180,7 @@ export async function embedWatermark(dbParams, table, idColumn, vectorColumn, me
       vector_column: vectorColumn,
       message,
       embed_rate: embedRate,
+      encryption_key: encryptionKey,
       total_vecs: 1600  // 保留兼容性，但现在主要使用embed_rate
     }),
   });
@@ -191,8 +193,6 @@ export async function embedWatermark(dbParams, table, idColumn, vectorColumn, me
   return res.json();
 }
 
-
-
 /**
  * 提取水印，重新计算低入度节点
  * @param {{host,port,dbname,user,password}} dbParams 数据库连接参数
@@ -200,9 +200,11 @@ export async function embedWatermark(dbParams, table, idColumn, vectorColumn, me
  * @param {string} idColumn 主键列名
  * @param {string} vectorColumn 向量列名
  * @param {number} embedRate 水印嵌入率（0-1之间的浮点数），默认0.1（10%）
+ * @param {string} encryptionKey AES-GCM解密密钥
+ * @param {string} nonce nonce的十六进制表示，用于解密
  * @returns {Promise<{success: boolean, message: string, blocks: number, recovered: number}>} 结果
  */
-export async function extractWatermark(dbParams, table, idColumn, vectorColumn, embedRate = 0.1) {
+export async function extractWatermark(dbParams, table, idColumn, vectorColumn, embedRate = 0.1, encryptionKey, nonce) {
   const res = await fetch('/api/extract-watermark', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -211,7 +213,9 @@ export async function extractWatermark(dbParams, table, idColumn, vectorColumn, 
       table,
       id_column: idColumn,
       vector_column: vectorColumn,
-      embed_rate: embedRate
+      embed_rate: embedRate,
+      encryption_key: encryptionKey,
+      nonce
     })
   });
   
@@ -337,10 +341,6 @@ export async function embedMilvusWatermark(dbParams, collectionName, idField, ve
   return res.json();
 }
 
-
-
-
-
 /**
  * 从Milvus提取水印，重新计算低入度节点
  * @param {{host: string, port: number}} dbParams Milvus连接参数
@@ -423,4 +423,3 @@ export async function trainMilvusModel(dbParams, collectionName, vectorField, di
   }
   return res.json();
 }
-

@@ -223,24 +223,34 @@ class PGVectorManager:
             vector_column: str,
             message: str,
             embed_rate: float = 0.1,
+            encryption_key: str = None,
             total_vecs: int = 1600
     ) -> Dict[str, Any]:
         """
-        在指定表的向量列中嵌入水印，不生成ID文件
+        在指定表的向量列中嵌入水印，使用AES-GCM加密明文消息
         
         Args:
             db_params: 数据库连接参数
             table: 表名
             id_column: 主键列名
             vector_column: 向量列名
-            message: 水印消息
+            message: 明文消息（16字节）
             embed_rate: 水印嵌入率（0-1之间的浮点数），默认10%
+            encryption_key: AES-GCM加密密钥
             total_vecs: 使用的向量数量，默认1600（已弃用，保留兼容性）
             
         Returns:
-            嵌入结果字典
+            嵌入结果字典，包含nonce供用户保存
         """
         try:
+            # 验证明文消息长度
+            if len(message) != 16:
+                return {"success": False, "error": "明文消息长度必须为16字节"}
+            
+            # 验证加密密钥
+            if not encryption_key:
+                return {"success": False, "error": "必须提供AES-GCM加密密钥"}
+            
             # 首先获取向量维度
             dim_result = self.get_vector_dimension(db_params, table, vector_column)
             if not dim_result["success"]:
@@ -256,7 +266,8 @@ class PGVectorManager:
                 emb_col=vector_column,
                 message=message,
                 vec_dim=vec_dim,
-                embed_rate=embed_rate
+                embed_rate=embed_rate,
+                encryption_key=encryption_key
             )
 
             return result
@@ -269,10 +280,12 @@ class PGVectorManager:
             table: str,
             id_column: str,
             vector_column: str,
-            embed_rate: float = 0.1
+            embed_rate: float = 0.1,
+            encryption_key: str = None,
+            nonce: str = None
     ) -> Dict[str, Any]:
         """
-        从指定表的向量列中提取水印，重新计算低入度节点
+        从指定表的向量列中提取水印，使用AES-GCM解密得到明文消息
         
         Args:
             db_params: 数据库连接参数
@@ -280,11 +293,21 @@ class PGVectorManager:
             id_column: 主键列名
             vector_column: 向量列名
             embed_rate: 水印嵌入率（0-1之间的浮点数），默认10%
+            encryption_key: AES-GCM解密密钥
+            nonce: nonce的十六进制表示，必须提供用于解密
             
         Returns:
             提取结果字典
         """
         try:
+            # 验证解密密钥
+            if not encryption_key:
+                return {"success": False, "error": "必须提供AES-GCM解密密钥"}
+            
+            # 验证nonce
+            if not nonce:
+                return {"success": False, "error": "必须提供nonce用于解密"}
+            
             # 首先获取向量维度
             dim_result = self.get_vector_dimension(db_params, table, vector_column)
             if not dim_result["success"]:
@@ -299,7 +322,9 @@ class PGVectorManager:
                 id_col=id_column,
                 emb_col=vector_column,
                 vec_dim=vec_dim,
-                embed_rate=embed_rate
+                embed_rate=embed_rate,
+                encryption_key=encryption_key,
+                nonce_hex=nonce
             )
 
             return result
