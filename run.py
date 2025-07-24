@@ -31,14 +31,10 @@ def start_frontend():
 
 if __name__ == "__main__":
     backend = start_backend()
-    time.sleep(2)
+    time.sleep(5)
     frontend = start_frontend()
 
     try:
-        print("\n后端: http://localhost:8000")
-        print("前端: http://localhost:5173")
-        print("按 Ctrl+C 停止\n")
-
         backend.wait()
         if frontend:
             frontend.wait()
