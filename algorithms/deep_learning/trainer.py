@@ -59,36 +59,27 @@ def evaluate(model_tuple, loader, noise, lam, device):
 
 
 def get_adaptive_model_params(vec_dim: int, msg_len: int):
-    """
-    根据向量维度自适应计算模型参数
-    
-    Args:
-        vec_dim: 向量维度
-        msg_len: 消息长度
-        
-    Returns:
-        dict: 包含模型架构参数的字典
-    """
-    # 基础参数
     base_capacity = vec_dim * msg_len  # 信息容量基准
-    
-    # 📊 自适应计算模型深度 (6-12层)
-    # 低维向量需要更深的网络来提取特征
-    depth = max(6, min(12, int(6 + 4 * (256 / max(vec_dim, 64)))))
-    
-    # 📊 自适应计算隐层倍数 (4-8倍)
-    # 确保隐层大小至少为消息长度的16倍以提供足够表达能力
-    min_hidden = msg_len * 16
-    hidden_mul = max(4, min(8, int(min_hidden / vec_dim) + 2))
-    
-    # 📊 自适应计算扰动强度
-    # 低维向量需要更小的扰动以保持稳定性
-    delta_scale = max(0.01, min(0.03, 0.02 * math.sqrt(vec_dim / 256)))
-    
-    # 📊 自适应计算dropout率
-    # 低维向量用更少dropout避免欠拟合
-    dropout = max(0.02, min(0.15, 0.1 * (vec_dim / 384)))
-    
+
+    # 自适应计算模型深度 (4-16层)
+    # 高维向量需要更深的网络来处理复杂特征，支持到8K维度
+    # 低维向量用浅网络避免过拟合
+    depth = max(4, min(16, int(4 + 12 * (vec_dim / 1024))))
+
+    # 自适应计算隐层倍数 (2-10倍)
+    # 高维向量可以用更大的隐层来充分利用信息
+    # 低维向量用较小隐层提高参数效率
+    base_mul = 2 + 8 * (vec_dim / 2048)  # 线性增长，支持更高维度
+    hidden_mul = max(2, min(10, int(base_mul)))
+
+    # 自适应计算扰动强度 (0.005-0.08)
+    # 高维向量可以承受更大扰动，但要控制在合理范围内
+    delta_scale = max(0.005, min(0.08, 0.01 + 0.07 * (vec_dim / 2048)))
+
+    # 自适应计算dropout率 (0.01-0.4)
+    # 超高维向量需要更强的正则化防止过拟合
+    dropout = max(0.01, min(0.4, 0.05 + 0.35 * (vec_dim / 2048)))
+
     return {
         'depth': depth,
         'hidden_mul': hidden_mul,
@@ -101,26 +92,29 @@ def get_adaptive_model_params(vec_dim: int, msg_len: int):
 def get_adaptive_training_params(vec_dim: int, base_lr: float):
     """
     根据向量维度自适应计算训练参数
-    
+
     Args:
         vec_dim: 向量维度
         base_lr: 基础学习率
-        
+
     Returns:
         dict: 包含训练参数的字典
     """
-    # 📊 学习率自适应
-    # 低维向量需要更精细的学习率调整
-    lr_scale = math.sqrt(256 / max(vec_dim, 64))  # 归一化到256维基准
-    enc_lr = base_lr * (1.2 + 0.8 * lr_scale)
-    dec_lr = base_lr * (0.6 + 0.4 * lr_scale)
-    
-    # 📊 权重衰减自适应
-    weight_decay = max(1e-7, min(1e-4, 1e-5 / math.sqrt(vec_dim / 128)))
-    
-    # 📊 清洁训练比例自适应
-    clean_ratio = max(0.15, min(0.4, 0.2 + 0.2 * (256 / max(vec_dim, 64))))
-    
+    # 学习率自适应 (支持到8K维度)
+    # 高维向量梯度更复杂，需要更小的学习率
+    # 超高维向量需要极小的学习率保证稳定性
+    lr_scale = max(0.2, min(2.0, 1.0 * (512 / vec_dim)))  # 扩展范围
+    enc_lr = base_lr * lr_scale * 1.2  # 编码器稍高
+    dec_lr = base_lr * lr_scale * 0.8  # 解码器稍低
+
+    # 权重衰减自适应 (1e-7 到 5e-4)
+    # 超高维向量参数量巨大，需要更强的正则化
+    weight_decay = max(1e-7, min(5e-4, 1e-6 * math.sqrt(vec_dim / 64)))
+
+    # 清洁训练比例自适应 (15%-60%)
+    # 超高维向量极易过拟合，需要大量清洁训练
+    clean_ratio = max(0.15, min(0.6, 0.2 + 0.4 * (vec_dim / 2048)))
+
     return {
         'enc_lr': enc_lr,
         'dec_lr': dec_lr,
@@ -132,29 +126,29 @@ def get_adaptive_training_params(vec_dim: int, base_lr: float):
 def get_adaptive_noise_params(vec_dim: int):
     """
     根据向量维度自适应计算噪声参数
-    
+
     Args:
         vec_dim: 向量维度
-        
+
     Returns:
         dict: 包含噪声参数的字典
     """
-    # 📊 噪声强度自适应
+    # 噪声强度自适应
     # 低维向量对噪声更敏感，需要更温和的设置
     noise_scale = math.sqrt(vec_dim / 256)
-    
+
     # 高斯噪声强度
     gauss_base = 0.015 * noise_scale
     gauss_levels = [gauss_base * 0.5, gauss_base, gauss_base * 1.5]
-    
+
     # 量化等级
     quant_base = int(8 + 4 * noise_scale)
     quant_levels = [quant_base + 4, quant_base, max(6, quant_base - 2)]
-    
+
     # 维度遮蔽比例
     mask_base = 0.95 + 0.03 * (1 - noise_scale)
     mask_levels = [min(0.99, mask_base + 0.02), mask_base, max(0.85, mask_base - 0.05)]
-    
+
     return {
         'gauss_levels': gauss_levels,
         'quant_levels': quant_levels,

@@ -12,22 +12,24 @@ from .decoder import AdvVectorDecoder
 def get_adaptive_model_params(vec_dim: int, msg_len: int):
     base_capacity = vec_dim * msg_len  # 信息容量基准
 
-    # 自适应计算模型深度 (6-12层)
-    # 低维向量需要更深的网络来提取特征
-    depth = max(6, min(12, int(6 + 4 * (256 / max(vec_dim, 64)))))
+    # 自适应计算模型深度 (4-16层)
+    # 高维向量需要更深的网络来处理复杂特征，支持到8K维度
+    # 低维向量用浅网络避免过拟合
+    depth = max(4, min(16, int(4 + 12 * (vec_dim / 1024))))
 
-    # 自适应计算隐层倍数 (4-8倍)
-    # 确保隐层大小至少为消息长度的16倍以提供足够表达能力
-    min_hidden = msg_len * 16
-    hidden_mul = max(4, min(8, int(min_hidden / vec_dim) + 2))
+    # 自适应计算隐层倍数 (2-10倍)
+    # 高维向量可以用更大的隐层来充分利用信息
+    # 低维向量用较小隐层提高参数效率
+    base_mul = 2 + 8 * (vec_dim / 2048)  # 线性增长，支持更高维度
+    hidden_mul = max(2, min(10, int(base_mul)))
 
-    # 自适应计算扰动强度
-    # 低维向量需要更小的扰动以保持稳定性
-    delta_scale = max(0.01, min(0.03, 0.02 * math.sqrt(vec_dim / 256)))
+    # 自适应计算扰动强度 (0.005-0.08)
+    # 高维向量可以承受更大扰动，但要控制在合理范围内
+    delta_scale = max(0.005, min(0.08, 0.01 + 0.07 * (vec_dim / 2048)))
 
-    # 自适应计算dropout率
-    # 低维向量用更少dropout避免欠拟合
-    dropout = max(0.02, min(0.15, 0.1 * (vec_dim / 384)))
+    # 自适应计算dropout率 (0.01-0.4)
+    # 超高维向量需要更强的正则化防止过拟合
+    dropout = max(0.01, min(0.4, 0.05 + 0.35 * (vec_dim / 2048)))
 
     return {
         'depth': depth,
