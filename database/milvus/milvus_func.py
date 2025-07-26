@@ -1,20 +1,25 @@
 """
-Milvus向量水印系统核心函数库
+Milvus向量水印系统核心函数库 - 支持AES-GCM加密
 
 提供向量水印嵌入和提取的关键功能：
 - 支持参数化Milvus连接和集合结构
 - 支持自定义主键字段名和向量字段名
+- 集成AES-GCM加密算法处理明文消息
 - 通过文件保存低入度ID列表确保嵌入/提取一致性
 """
 import os
 import json
 import uuid
+import hashlib
+import base64
 import numpy as np
 import faiss
 import torch
 from pymilvus import connections, Collection, utility, FieldSchema, CollectionSchema, DataType
 from algorithms.deep_learning.watermark import VectorWatermark
 from configs.config import Config
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
 
 # —— 从配置文件获取参数 —— #
 M = Config.HNSW_M
@@ -415,51 +420,210 @@ def backup_vectors(db_params, collection_name, id_field, vector_field, low_ids,
         connections.disconnect(alias)
 
 
-def embed_watermark(db_params, collection_name, id_field, vector_field, message, vec_dim, embed_rate=None, total_vecs=None,
-                    ids_file=None):
+# —— AES-GCM 加密解密函数 —— #
+
+def derive_key_from_password(password: str, salt: bytes = None) -> bytes:
     """
-    嵌入水印流程 - 使用嵌入率选择向量
+    从密码派生AES密钥
+    """
+    if salt is None:
+        # 使用固定盐值确保同一密码生成相同密钥
+        salt = b'DbWM_Salt_2024'
+    
+    # 使用PBKDF2派生32字节密钥
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+    return key
+
+
+def aes_gcm_encrypt(plaintext: str, password: str) -> tuple:
+    """
+    使用AES-GCM加密明文消息，生成随机nonce
+    
+    Args:
+        plaintext: 16字节明文消息
+        password: 用户提供的密码
+        
+    Returns:
+        tuple: (encrypted_data, nonce)
+            - encrypted_data: 24字节数据（16字节密文 + 8字节认证标签）
+            - nonce: 12字节随机nonce，需要用户保存用于后续解密
+    """
+    if len(plaintext) != 16:
+        raise ValueError("明文消息必须为16字节")
+    
+    # 派生密钥
+    key = derive_key_from_password(password)
+    
+    # 生成随机nonce
+    nonce = get_random_bytes(12)
+    
+    # AES-GCM加密，指定8字节的标签长度
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=8)
+    ciphertext, tag = cipher.encrypt_and_digest(plaintext.encode('utf-8'))
+    
+    # 返回密文+标签和nonce
+    return ciphertext + tag, nonce
+
+
+def aes_gcm_decrypt(encrypted_data: bytes, password: str, nonce: bytes) -> str:
+    """
+    使用AES-GCM解密密文数据，需要提供正确的nonce
+    
+    Args:
+        encrypted_data: 24字节加密数据（16字节密文 + 8字节标签）
+        password: 用户提供的密码
+        nonce: 12字节nonce，必须与加密时使用的相同
+        
+    Returns:
+        16字节明文消息
+    """
+    if len(encrypted_data) != 24:
+        raise ValueError("加密数据必须为24字节")
+    
+    if len(nonce) != 12:
+        raise ValueError("nonce必须为12字节")
+    
+    # 分离密文和标签
+    ciphertext = encrypted_data[:16]
+    tag = encrypted_data[16:]
+    
+    # 派生密钥
+    key = derive_key_from_password(password)
+    
+    # AES-GCM解密，指定8字节的标签长度
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=8)
+    try:
+        plaintext = cipher.decrypt_and_verify(ciphertext, tag)
+        return plaintext.decode('utf-8')
+    except ValueError as e:
+        raise ValueError(f"解密失败：密钥错误或数据损坏 - {str(e)}")
+
+
+def encrypt_message_to_32bytes(plaintext: str, password: str) -> tuple:
+    """
+    将16字节明文加密为恰好32字符的Base64字符串，用于水印嵌入
+    
+    Args:
+        plaintext: 16字节明文消息
+        password: 加密密钥
+        
+    Returns:
+        tuple: (encrypted_str, nonce_hex)
+            - encrypted_str: 32字符Base64字符串
+            - nonce_hex: nonce的十六进制表示，用户需保存以便后续解密
+    """
+    encrypted_bytes, nonce = aes_gcm_encrypt(plaintext, password)
+    
+    # 使用Base64编码 - 24字节数据会精确编码为32个字符
+    encrypted_str = base64.b64encode(encrypted_bytes).decode('ascii')
+    
+    # 检查编码结果是否符合预期
+    if len(encrypted_str) != 32:
+        print(f"警告: Base64编码结果长度为 {len(encrypted_str)}，预期32")
+    
+    # 将nonce转换为十六进制字符串方便用户保存
+    nonce_hex = nonce.hex()
+    return encrypted_str, nonce_hex
+
+
+def decrypt_32bytes_to_message(encrypted_str: str, password: str, nonce_hex: str) -> str:
+    """
+    将32字符Base64字符串解密为16字节明文消息，需要提供正确的nonce
+    
+    Args:
+        encrypted_str: 32字符Base64字符串
+        password: 解密密钥
+        nonce_hex: nonce的十六进制表示
+        
+    Returns:
+        16字节明文消息
+    """
+    if len(encrypted_str) != 32:
+        raise ValueError("加密字符串长度必须为32")
+    
+    # 将nonce的十六进制表示转换回字节
+    try:
+        nonce_hex = nonce_hex.strip()
+        print(f"DEBUG - 输入的nonce (hex): '{nonce_hex}'")
+        nonce = bytes.fromhex(nonce_hex)
+        print(f"DEBUG - 解析的nonce字节: {nonce.hex()}")
+    except ValueError as e:
+        print(f"DEBUG - nonce解析错误: {str(e)}")
+        raise ValueError(f"无效的nonce十六进制表示: {str(e)}")
+    
+    # 直接Base64解码
+    try:
+        print(f"DEBUG - 输入的加密字符串: '{encrypted_str}'")
+        encrypted_bytes = base64.b64decode(encrypted_str)
+        print(f"DEBUG - 转换后的字节 (hex): {encrypted_bytes.hex()}")
+        print(f"DEBUG - 转换后的字节长度: {len(encrypted_bytes)} 字节")
+        
+        # 派生密钥用于调试
+        key = derive_key_from_password(password)
+        print(f"DEBUG - 派生的密钥 (hex): {key.hex()}")
+        
+        # 检查长度
+        if len(encrypted_bytes) != 24:
+            print(f"WARNING - 解码后的密文+标签长度不是24字节! 实际: {len(encrypted_bytes)}")
+        
+        return aes_gcm_decrypt(encrypted_bytes, password, nonce)
+    except Exception as e:
+        print(f"DEBUG - 转换或解密过程异常: {str(e)}")
+        raise e
+
+
+def embed_watermark(db_params, collection_name, id_field, vector_field, message, vec_dim, embed_rate=None, encryption_key=None, total_vecs=None, ids_file=None):
+    """
+    嵌入水印流程 - 支持AES-GCM加密的明文消息
     
     Args:
         db_params: 数据库连接参数
         collection_name: 集合名
         id_field: 主键字段名
         vector_field: 向量字段名
-        message: 水印消息
+        message: 明文消息（16字节）
         vec_dim: 向量维度
         embed_rate: 水印嵌入率（0-1之间的浮点数），优先使用此参数
-        total_vecs: 兼容性参数，已弃用
-        ids_file: ID文件路径（可选）
-        
-    Returns:
-        嵌入结果字典
+        encryption_key: AES-GCM加密密钥
+        total_vecs: 使用的向量数量（已弃用，保留兼容性）
+        ids_file: ID文件路径（已弃用，保留兼容性）
     """
-    # 参数处理：优先使用embed_rate
+    # 验证明文消息长度
+    if len(message) != 16:
+        return {"success": False, "error": f"明文消息长度必须为16字符，当前为{len(message)}字符"}
+    
+    # 验证加密密钥
+    if not encryption_key:
+        return {"success": False, "error": "必须提供AES-GCM加密密钥"}
+
+    # 确定嵌入率
     if embed_rate is None:
         embed_rate = DEFAULT_EMBED_RATE
 
     if not (0 < embed_rate <= 1):
-        return {"success": False, "error": f"水印嵌入率必须在(0,1]范围内，当前值：{embed_rate}"}
+        return {"success": False, "error": "水印嵌入率必须在0和1之间"}
 
-    # 检查消息长度
-    if len(message) != BLOCK_COUNT * 2:
-        return {"success": False, "error": f"消息长度必须为 {BLOCK_COUNT * 2} 字符"}
-
-    # 1) 分块消息数据
-    chunks = partition_message(message)
-
-    # 2) 拉原始集合向量
     try:
+        # 1) 使用AES-GCM加密明文消息为32字节，并获取nonce
+        encrypted_message, nonce_hex = encrypt_message_to_32bytes(message, encryption_key)
+        print(f"明文消息: {message}")
+        print(f"加密后消息: {encrypted_message}")
+        print(f"生成的nonce: {nonce_hex}")
+        
+        # 2) 分块加密消息数据
+        chunks = partition_message(encrypted_message)
+
+        # 3) 拉原始集合向量
         ids, data = fetch_vectors(db_params, collection_name, id_field, vector_field, vec_dim)
     except Exception as e:
-        return {"success": False, "error": f"获取向量数据失败: {str(e)}"}
+        return {"success": False, "error": f"数据准备失败: {str(e)}"}
 
-    # 3) 构建索引和生成ID列表
+    # 4) 构建索引和生成ID列表
     try:
         idx = build_hnsw_index(data.copy(), vec_dim)
         in_deg = compute_in_degrees(idx, ids)
 
-        # 使用嵌入率选择向量
+        # 按嵌入率选择低入度向量
         low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate)
 
         # 如果选出的向量太少，返回错误
@@ -469,38 +633,37 @@ def embed_watermark(db_params, collection_name, id_field, vector_field, message,
                 "error": f"按{embed_rate:.1%}嵌入率选择的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
             }
 
-        # 保存ID列表到文件（如果提供了文件路径）
-        if ids_file:
-            save_low_degree_ids(low_ids, ids_file)
     except Exception as e:
         return {"success": False, "error": f"生成低入度向量ID失败: {str(e)}"}
 
-    # 4) 嵌入并写回原始集合
+    # 5) 嵌入并写回原始集合
     try:
         model_path = Config.get_model_path(vec_dim)
         wm = VectorWatermark(vec_dim=vec_dim, msg_len=MSG_LEN, model_path=model_path)
         updated = embed_into_milvus(low_ids, data, chunks, wm, db_params, collection_name, id_field, vector_field)
 
         # 计算实际嵌入率
-        actual_rate = len(low_ids) / len(ids) if len(ids) > 0 else 0
+        actual_rate = len(low_ids) / len(ids)
 
-        # 添加使用的向量数量到返回信息
+        # 返回嵌入结果
         return {
             "success": True,
-            "message": f"水印嵌入完成，按{embed_rate:.1%}嵌入率选择了{len(low_ids)}个向量，更新了{updated}个向量",
+            "message": f"明文消息加密后嵌入完成，嵌入率{actual_rate:.1%}({len(low_ids)}/{len(ids)})，更新了{updated}个向量",
             "updated": updated,
             "used_vectors": len(low_ids),
             "total_vectors": len(ids),
             "embed_rate": actual_rate,
-            "ids_file": ids_file
+            "plaintext": message,
+            "encrypted_preview": encrypted_message[:8] + "...",  # 只显示前8字符
+            "nonce": nonce_hex  # 返回nonce供用户保存
         }
     except Exception as e:
         return {"success": False, "error": f"嵌入水印失败: {str(e)}"}
 
 
-def extract_watermark(db_params, collection_name, id_field, vector_field, vec_dim, embed_rate=None, ids_file=None):
+def extract_watermark(db_params, collection_name, id_field, vector_field, vec_dim, embed_rate=None, encryption_key=None, nonce_hex=None, ids_file=None):
     """
-    提取水印流程 - 重新计算低入度节点，不依赖ID文件
+    提取水印流程 - 支持AES-GCM解密得到明文消息
     
     Args:
         db_params: 数据库连接参数
@@ -509,75 +672,85 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, vec_di
         vector_field: 向量字段名
         vec_dim: 向量维度
         embed_rate: 水印嵌入率（0-1之间的浮点数），如果提供则使用此参数重新计算
-        ids_file: ID文件路径（可选，用于向后兼容）
-        
-    Returns:
-        提取结果字典
+        encryption_key: AES-GCM解密密钥
+        nonce_hex: nonce的十六进制表示，必须提供用于解密
+        ids_file: ID文件路径（已弃用，保留兼容性）
     """
-    # 参数处理
+    # 验证解密密钥和nonce
+    if not encryption_key:
+        return {"success": False, "error": "必须提供AES-GCM解密密钥"}
+    
+    if not nonce_hex:
+        return {"success": False, "error": "必须提供nonce用于解密"}
+        
+    try:
+        # 验证nonce格式
+        bytes.fromhex(nonce_hex)
+    except ValueError:
+        return {"success": False, "error": "无效的nonce格式，应为十六进制字符串"}
+
+    # 确定嵌入率
     if embed_rate is None:
         embed_rate = DEFAULT_EMBED_RATE
 
-    # 1) 如果提供了ID文件且文件存在，则使用文件中的ID列表
-    low_ids = None
-    if ids_file and os.path.exists(ids_file):
-        try:
-            low_ids = load_low_degree_ids(ids_file)
-            print(f"使用ID文件中的{len(low_ids)}个向量ID进行提取")
-        except Exception as e:
-            print(f"加载ID文件失败，将重新计算: {str(e)}")
-            low_ids = None
+    if not (0 < embed_rate <= 1):
+        return {"success": False, "error": "水印嵌入率必须在0和1之间"}
 
-    # 2) 如果没有有效的ID列表，则重新计算
-    if low_ids is None:
-        try:
-            # 获取所有向量数据
-            ids, data = fetch_vectors(db_params, collection_name, id_field, vector_field, vec_dim)
+    # 1) 重新获取向量数据并计算低入度节点
+    try:
+        ids, data = fetch_vectors(db_params, collection_name, id_field, vector_field, vec_dim)
 
-            # 构建索引并计算入度
-            idx = build_hnsw_index(data.copy(), vec_dim)
-            in_deg = compute_in_degrees(idx, ids)
+        # 重新构建索引并计算入度
+        idx = build_hnsw_index(data.copy(), vec_dim)
+        in_deg = compute_in_degrees(idx, ids)
 
-            # 使用嵌入率选择向量
-            low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate)
-            print(f"重新计算得到{len(low_ids)}个低入度向量ID")
+        # 按嵌入率选择低入度向量（与嵌入时使用相同策略）
+        low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate)
 
-        except Exception as e:
-            return {"success": False, "error": f"重新计算低入度向量ID失败: {str(e)}"}
+        if len(low_ids) < BLOCK_COUNT:
+            return {
+                "success": False,
+                "error": f"按{embed_rate:.1%}嵌入率选择的向量数量({len(low_ids)})少于最小需求({BLOCK_COUNT})"
+            }
 
-    # 3) 提取水印
+        print(f"提取时按{embed_rate:.1%}嵌入率找到 {len(low_ids)} 个低入度节点")
+
+    except Exception as e:
+        return {"success": False, "error": f"获取向量数据或计算入度失败: {str(e)}"}
+
+    # 2) 提取水印 - 对所有低入度节点进行解码
     try:
         model_path = Config.get_model_path(vec_dim)
         wm = VectorWatermark(vec_dim=vec_dim, msg_len=MSG_LEN, model_path=model_path)
-        rec = extract_from_milvus(db_params, collection_name, id_field, vector_field, low_ids, wm)
-    except Exception as e:
-        return {"success": False, "error": f"提取水印失败: {str(e)}"}
 
-    # 4) 恢复消息 - 使用纯统计方法
-    try:
+        rec_payloads = extract_from_milvus(db_params, collection_name, id_field, vector_field, low_ids, wm)
+
+        # 统计有效解码
+        valid_decodes = sum(len(samples) for samples in rec_payloads.values())
+        total_decodes = len(low_ids)
+
+        print(f"总解码: {total_decodes}, 有效解码: {valid_decodes}")
+
+        # 3) 恢复加密消息 - 使用纯统计方法
         from collections import Counter
-        import numpy as np
 
         recovered = []
         recovered_blocks = 0
-        stats_info = []  # 记录每个区块的统计信息
+        stats_info = []
 
         for b in range(BLOCK_COUNT):
-            samples = rec.get(b, [])
+            samples = rec_payloads.get(b, [])
             if not samples:
-                recovered.append("??")
+                recovered.append("?")
                 stats_info.append({"block": b, "status": "empty", "samples": 0})
                 continue
 
             recovered_blocks += 1
 
             # 将每个样本转化为比特串的哈希值用于统计
-            # 注意: 我们统计的是原始比特串而不是转换后的文本
             bit_strings = []
             for sample in samples:
-                # 将浮点样本转化为二进制比特
                 bits = (sample > 0.5).astype(int)
-                # 将比特数组转化为元组，以便作为Counter的键
                 bit_tuple = tuple(bits.tolist())
                 bit_strings.append(bit_tuple)
 
@@ -585,13 +758,11 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, vec_di
             counter = Counter(bit_strings)
             most_common = counter.most_common(1)
 
-            if most_common:  # 确保有结果
+            if most_common:
                 most_common_bits, count = most_common[0]
-                # 使用出现频率最高的比特串，无论其频率如何
                 best_bits = np.array(most_common_bits)
-                txt = bits_to_text(best_bits)
+                char = bits_to_text(best_bits)
 
-                # 记录统计信息
                 stats_info.append({
                     "block": b,
                     "status": "found",
@@ -600,22 +771,51 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, vec_di
                     "most_common_percent": round(count / len(samples) * 100, 2)
                 })
             else:
-                # 如果没有样本，返回占位符
-                txt = "??"
+                char = "?"
                 stats_info.append({"block": b, "status": "no_results", "samples": len(samples)})
 
-            recovered.append(txt)
+            recovered.append(char)
 
-        final = "".join(recovered)
-        return {
-            "success": True,
-            "message": final,
-            "blocks": BLOCK_COUNT,
-            "recovered": recovered_blocks,
-            "method": "pure_statistical",
-            "used_vectors": len(low_ids),
-            "embed_rate": embed_rate,
-            "stats": stats_info  # 添加统计信息以便分析
-        }
+        encrypted_message = "".join(recovered)
+        print(f"恢复的加密消息: {encrypted_message}")
+
+        # 4) 使用AES-GCM解密得到明文消息
+        try:
+            if len(encrypted_message) == 32 and "?" not in encrypted_message:
+                plaintext = decrypt_32bytes_to_message(encrypted_message, encryption_key, nonce_hex)
+                print(f"解密得到明文: {plaintext}")
+                
+                return {
+                    "success": True,
+                    "message": plaintext,
+                    "blocks": BLOCK_COUNT,
+                    "recovered": recovered_blocks,
+                    "method": "recomputed_statistical_with_aes_gcm",
+                    "total_low_degree_nodes": len(low_ids),
+                    "valid_decodes": valid_decodes,
+                    "total_decodes": total_decodes,
+                    "encrypted_message": encrypted_message,
+                    "stats": stats_info
+                }
+            else:
+                # 如果加密消息不完整，仍然返回但标注解密失败
+                return {
+                    "success": False,
+                    "error": f"加密消息不完整或损坏，无法解密。恢复的消息: {encrypted_message}",
+                    "blocks": BLOCK_COUNT,
+                    "recovered": recovered_blocks,
+                    "encrypted_message": encrypted_message,
+                    "stats": stats_info
+                }
+        except Exception as decrypt_error:
+            return {
+                "success": False,
+                "error": f"解密失败: {str(decrypt_error)}。恢复的加密消息: {encrypted_message}",
+                "blocks": BLOCK_COUNT,
+                "recovered": recovered_blocks,
+                "encrypted_message": encrypted_message,
+                "stats": stats_info
+            }
+
     except Exception as e:
-        return {"success": False, "error": f"恢复消息失败: {str(e)}"}
+        return {"success": False, "error": f"提取水印失败: {str(e)}"}

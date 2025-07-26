@@ -379,7 +379,7 @@ async def list_milvus_primary_keys(
 @app.post("/api/milvus/embed_watermark")
 async def embed_milvus_watermark_api(request: MilvusWatermarkEmbedRequest):
     """
-    在指定Milvus集合的向量字段中嵌入水印，不生成ID文件
+    在指定Milvus集合的向量字段中嵌入水印，使用AES-GCM加密明文消息
     """
     result = milvus_manager.embed_watermark(
         db_params=request.db_params,
@@ -387,7 +387,8 @@ async def embed_milvus_watermark_api(request: MilvusWatermarkEmbedRequest):
         id_field=request.id_field,
         vector_field=request.vector_field,
         message=request.message,
-        embed_rate=request.embed_rate
+        embed_rate=request.embed_rate,
+        encryption_key=request.encryption_key
     )
 
     if result["success"]:
@@ -399,14 +400,16 @@ async def embed_milvus_watermark_api(request: MilvusWatermarkEmbedRequest):
 @app.post("/api/milvus/extract_watermark")
 async def extract_milvus_watermark_api(request: MilvusWatermarkExtractRequest):
     """
-    从指定Milvus集合的向量字段中提取水印，重新计算低入度节点
+    从指定Milvus集合的向量字段中提取水印，使用AES-GCM解密得到明文消息
     """
     result = milvus_manager.extract_watermark(
         db_params=request.db_params,
         collection_name=request.collection_name,
         id_field=request.id_field,
         vector_field=request.vector_field,
-        embed_rate=request.embed_rate
+        embed_rate=request.embed_rate,
+        encryption_key=request.encryption_key,
+        nonce=request.nonce
     )
 
     if result["success"]:

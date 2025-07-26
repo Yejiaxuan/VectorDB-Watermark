@@ -314,11 +314,12 @@ export async function fetchMilvusPrimaryKeys(dbParams, collectionName) {
  * @param {string} collectionName 集合名
  * @param {string} idField 主键字段名
  * @param {string} vectorField 向量字段名
- * @param {string} message 水印消息
+ * @param {string} message 明文消息（16字节）
  * @param {number} embedRate 水印嵌入率（0-1之间的浮点数），默认0.1（10%）
- * @returns {Promise<{success: boolean, message: string, updated: number}>} 结果
+ * @param {string} encryptionKey AES-GCM加密密钥
+ * @returns {Promise<{success: boolean, message: string, updated: number, nonce: string}>} 结果
  */
-export async function embedMilvusWatermark(dbParams, collectionName, idField, vectorField, message, embedRate = 0.1) {
+export async function embedMilvusWatermark(dbParams, collectionName, idField, vectorField, message, embedRate = 0.1, encryptionKey) {
   const res = await fetch('/api/milvus/embed_watermark', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -329,6 +330,7 @@ export async function embedMilvusWatermark(dbParams, collectionName, idField, ve
       vector_field: vectorField,
       message,
       embed_rate: embedRate,
+      encryption_key: encryptionKey,
       total_vecs: 1600  // 保留兼容性
     }),
   });
@@ -348,9 +350,11 @@ export async function embedMilvusWatermark(dbParams, collectionName, idField, ve
  * @param {string} idField 主键字段名
  * @param {string} vectorField 向量字段名
  * @param {number} embedRate 水印嵌入率（0-1之间的浮点数），默认0.1（10%）
+ * @param {string} encryptionKey AES-GCM解密密钥
+ * @param {string} nonce nonce的十六进制表示，用于解密
  * @returns {Promise<{success: boolean, message: string, blocks: number, recovered: number}>} 结果
  */
-export async function extractMilvusWatermark(dbParams, collectionName, idField, vectorField, embedRate = 0.1) {
+export async function extractMilvusWatermark(dbParams, collectionName, idField, vectorField, embedRate = 0.1, encryptionKey, nonce) {
   const res = await fetch('/api/milvus/extract_watermark', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -359,7 +363,9 @@ export async function extractMilvusWatermark(dbParams, collectionName, idField, 
       collection_name: collectionName,
       id_field: idField,
       vector_field: vectorField,
-      embed_rate: embedRate
+      embed_rate: embedRate,
+      encryption_key: encryptionKey,
+      nonce
     })
   });
   

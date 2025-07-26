@@ -33,8 +33,9 @@ class MilvusWatermarkEmbedRequest(BaseModel):
     collection_name: str  # 集合名
     id_field: str  # 主键字段名
     vector_field: str  # 向量字段名
-    message: str  # 水印消息
+    message: str  # 明文消息（16字节）
     embed_rate: float = 0.1  # 水印嵌入率，默认10%
+    encryption_key: str  # AES-GCM加密密钥
     total_vecs: int = 1600  # 使用的向量数量，默认1600（已弃用，保留兼容性）
 
 
@@ -56,3 +57,5 @@ class MilvusWatermarkExtractRequest(BaseModel):
     id_field: str  # 主键字段名
     vector_field: str  # 向量字段名
     embed_rate: float = 0.1  # 水印嵌入率，默认10%（提取时需要与嵌入时保持一致）
+    encryption_key: str  # AES-GCM解密密钥
+    nonce: str = None  # nonce的十六进制表示，用于解密
