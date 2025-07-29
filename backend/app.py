@@ -1,7 +1,7 @@
 import os
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from .models import DBParams, WatermarkEmbedRequest, WatermarkExtractRequest, MilvusDBParams, \
     MilvusWatermarkEmbedRequest, MilvusWatermarkExtractRequest
@@ -11,6 +11,9 @@ from database.milvus.client import MilvusManager
 # from algorithms.deep_learning.trainer import train_from_database
 from configs.config import Config
 import threading
+import numpy as np
+import uuid
+import time
 
 app = FastAPI()
 app.add_middleware(
@@ -28,6 +31,8 @@ milvus_manager = MilvusManager()
 training_status = {}
 training_lock = threading.Lock()
 
+# 存储可视化任务状态的字典
+visualization_tasks = {}
 
 @app.post("/api/connect")
 async def connect_db(params: DBParams):
@@ -320,6 +325,117 @@ def _train_pgvector_model(task_id: str, db_params: dict, table: str, vector_colu
         }
 
 
+@app.post("/api/vector_visualization")
+async def vector_visualization(
+    original_vectors: list = Body(..., description="原始向量列表"),
+    embedded_vectors: list = Body(..., description="嵌入水印后的向量列表"),
+    method: str = Body("tsne", description="降维方法，tsne或pca"),
+    use_all_samples: bool = Body(False, description="是否使用所有样本")
+):
+    """
+    对向量进行降维处理用于可视化
+    """
+    try:
+        # 转换为numpy数组
+        orig_array = np.array(original_vectors)
+        emb_array = np.array(embedded_vectors)
+        
+        # 调用降维处理函数，传递use_all_samples参数
+        result = pgvector_manager.get_embedding_visualization(
+            orig_array, emb_array, method=method, use_all_samples=use_all_samples
+        )
+        
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"降维处理失败: {str(e)}")
+
+
+@app.post("/api/vector_visualization_async")
+async def vector_visualization_async(
+    background_tasks: BackgroundTasks,
+    original_vectors: list = Body(...),
+    embedded_vectors: list = Body(...),
+    method: str = Body("tsne"),
+    use_all_samples: bool = Body(False)
+):
+    """异步处理向量可视化"""
+    # 生成唯一任务ID
+    task_id = str(uuid.uuid4())
+    
+    # 初始化任务状态
+    visualization_tasks[task_id] = {
+        "status": "processing",
+        "progress": 0,
+        "started_at": time.time(),
+        "estimated_time": estimate_visualization_time(len(original_vectors), method)
+    }
+    
+    # 启动后台任务
+    background_tasks.add_task(
+        process_visualization_in_background,
+        task_id,
+        original_vectors,
+        embedded_vectors,
+        method,
+        use_all_samples
+    )
+    
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "可视化处理已开始",
+        "estimated_time_seconds": visualization_tasks[task_id]["estimated_time"]
+    }
+
+def estimate_visualization_time(vector_count, method):
+    """估计可视化处理时间"""
+    if method == "tsne":
+        # t-SNE时间复杂度近似为O(n²)
+        return min(180, max(10, 0.0001 * vector_count**1.5))  # 经验公式
+    else:
+        # PCA通常更快
+        return min(60, max(5, 0.00005 * vector_count))
+
+def process_visualization_in_background(task_id, original_vectors, embedded_vectors, method, use_all_samples):
+    """后台处理可视化任务"""
+    try:
+        # 更新进度
+        visualization_tasks[task_id]["progress"] = 10
+        
+        # 转换为numpy数组
+        orig_array = np.array(original_vectors)
+        emb_array = np.array(embedded_vectors)
+        
+        # 更新进度
+        visualization_tasks[task_id]["progress"] = 20
+        
+        # 调用优化后的降维函数
+        result = pgvector_manager.get_embedding_visualization(
+            orig_array, emb_array, method=method, use_all_samples=use_all_samples
+        )
+        
+        # 更新任务状态
+        visualization_tasks[task_id]["status"] = "completed" if result["success"] else "failed"
+        visualization_tasks[task_id]["progress"] = 100
+        visualization_tasks[task_id]["result"] = result
+        visualization_tasks[task_id]["completed_at"] = time.time()
+        
+    except Exception as e:
+        visualization_tasks[task_id]["status"] = "failed"
+        visualization_tasks[task_id]["error"] = str(e)
+
+@app.get("/api/visualization_status/{task_id}")
+async def get_visualization_status(task_id: str):
+    """获取可视化任务状态"""
+    if task_id not in visualization_tasks:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    return visualization_tasks[task_id]
+
+
 # ===== Milvus API 端点 =====
 
 @app.post("/api/milvus/connect")
@@ -583,3 +699,5 @@ def _train_milvus_model(task_id: str, db_params: dict, collection_name: str, vec
             "error": str(e),
             "dimension": dimension
         }
+
+

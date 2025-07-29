@@ -228,6 +228,78 @@ export async function extractWatermark(dbParams, table, idColumn, vectorColumn, 
 }
 
 
+/**
+ * 获取向量降维可视化数据
+ * @param {Array} originalVectors 原始向量数组
+ * @param {Array} embeddedVectors 嵌入水印后的向量数组
+ * @param {string} method 降维方法 (tsne 或 pca)
+ * @returns {Promise<Object>} 降维结果
+ */
+export async function getVectorVisualization(originalVectors, embeddedVectors, method = 'tsne', useAllSamples = true) {
+  const res = await fetch('/api/vector_visualization', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      original_vectors: originalVectors,
+      embedded_vectors: embeddedVectors,
+      method,
+      use_all_samples: useAllSamples
+    })
+  });
+  
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '降维处理失败');
+  }
+  
+  return res.json();
+}
+
+
+/**
+ * 异步获取向量可视化数据
+ * @param {Array} originalVectors 原始向量数组
+ * @param {Array} embeddedVectors 嵌入水印后的向量数组
+ * @param {string} method 降维方法 ('tsne' 或 'pca')
+ * @param {boolean} useAllSamples 是否使用所有样本
+ * @returns {Promise<Object>} 包含任务ID和预估时间的响应
+ */
+export async function getVectorVisualizationAsync(originalVectors, embeddedVectors, method = 'tsne', useAllSamples = true) {
+  const res = await fetch('/api/vector_visualization_async', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      original_vectors: originalVectors,
+      embedded_vectors: embeddedVectors,
+      method,
+      use_all_samples: useAllSamples
+    })
+  });
+  
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '启动降维处理失败');
+  }
+  
+  return res.json();
+}
+
+/**
+ * 获取可视化处理任务的状态
+ * @param {string} taskId 任务ID
+ * @returns {Promise<Object>} 任务状态信息
+ */
+export async function getVisualizationStatus(taskId) {
+  const res = await fetch(`/api/visualization_status/${taskId}`);
+  
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || '获取可视化状态失败');
+  }
+  
+  return res.json();
+}
+
 
 // ===== Milvus API 函数 =====
 
