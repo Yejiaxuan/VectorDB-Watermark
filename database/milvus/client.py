@@ -16,7 +16,7 @@ import numpy as np
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pymilvus import connections, Collection, utility, FieldSchema, CollectionSchema, DataType
-from .milvus_func import embed_watermark, extract_watermark
+from .milvus_func import embed_watermark, extract_watermark, reduce_dimensions
 
 
 class MilvusManager:
@@ -398,5 +398,33 @@ class MilvusManager:
             )
 
             return result
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        
+
+    def get_embedding_visualization(self, original_vectors, embedded_vectors, method="tsne", use_all_samples=False):
+        """
+        获取嵌入前后向量的降维可视化数据
+        
+        Args:
+            original_vectors: 原始向量数组
+            embedded_vectors: 嵌入水印后的向量数组
+            method: 降维方法，可选 "tsne" 或 "pca"
+            use_all_samples: 是否使用所有样本（不限制数量）
+            
+        Returns:
+            降维后的可视化数据
+        """
+        try:
+            # 计算样本数量，如果use_all_samples为True则传递None表示不限制
+            n_samples = None if use_all_samples else 500
+            
+            result = reduce_dimensions(
+                np.array(original_vectors), 
+                np.array(embedded_vectors),
+                method=method,
+                n_samples=n_samples
+            )
+            return {"success": True, **result}
         except Exception as e:
             return {"success": False, "error": str(e)}

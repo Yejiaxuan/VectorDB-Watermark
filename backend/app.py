@@ -701,3 +701,105 @@ def _train_milvus_model(task_id: str, db_params: dict, collection_name: str, vec
         }
 
 
+@app.post("/api/milvus/vector_visualization")
+async def milvus_vector_visualization(
+    original_vectors: list = Body(..., description="原始向量列表"),
+    embedded_vectors: list = Body(..., description="嵌入水印后的向量列表"),
+    method: str = Body("tsne", description="降维方法，tsne或pca"),
+    use_all_samples: bool = Body(False, description="是否使用所有样本")
+):
+    """
+    对Milvus向量进行降维处理用于可视化
+    """
+    try:
+        # 转换为numpy数组
+        orig_array = np.array(original_vectors)
+        emb_array = np.array(embedded_vectors)
+        
+        # 调用降维处理函数，传递use_all_samples参数
+        result = milvus_manager.get_embedding_visualization(
+            orig_array, emb_array, method=method, use_all_samples=use_all_samples
+        )
+        
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Milvus降维处理失败: {str(e)}")
+
+
+@app.post("/api/milvus/vector_visualization_async")
+async def milvus_vector_visualization_async(
+    background_tasks: BackgroundTasks,
+    original_vectors: list = Body(...),
+    embedded_vectors: list = Body(...),
+    method: str = Body("tsne"),
+    use_all_samples: bool = Body(False)
+):
+    """异步处理Milvus向量可视化"""
+    # 生成唯一任务ID
+    task_id = str(uuid.uuid4())
+    
+    # 初始化任务状态
+    visualization_tasks[task_id] = {
+        "status": "processing",
+        "progress": 0,
+        "started_at": time.time(),
+        "estimated_time": estimate_visualization_time(len(original_vectors), method)
+    }
+    
+    # 启动后台任务
+    background_tasks.add_task(
+        process_milvus_visualization_in_background,
+        task_id,
+        original_vectors,
+        embedded_vectors,
+        method,
+        use_all_samples
+    )
+    
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "Milvus可视化处理已开始",
+        "estimated_time_seconds": visualization_tasks[task_id]["estimated_time"]
+    }
+
+
+def process_milvus_visualization_in_background(task_id, original_vectors, embedded_vectors, method, use_all_samples):
+    """后台处理Milvus可视化任务"""
+    try:
+        # 更新进度
+        visualization_tasks[task_id]["progress"] = 10
+        
+        # 转换为numpy数组
+        orig_array = np.array(original_vectors)
+        emb_array = np.array(embedded_vectors)
+        
+        # 更新进度
+        visualization_tasks[task_id]["progress"] = 20
+        
+        # 调用优化后的降维函数
+        result = milvus_manager.get_embedding_visualization(
+            orig_array, emb_array, method=method, use_all_samples=use_all_samples
+        )
+        
+        # 更新任务状态
+        visualization_tasks[task_id]["status"] = "completed" if result["success"] else "failed"
+        visualization_tasks[task_id]["progress"] = 100
+        visualization_tasks[task_id]["result"] = result
+        visualization_tasks[task_id]["completed_at"] = time.time()
+        
+    except Exception as e:
+        visualization_tasks[task_id]["status"] = "failed"
+        visualization_tasks[task_id]["error"] = str(e)
+
+
+@app.get("/api/milvus/visualization_status/{task_id}")
+async def get_milvus_visualization_status(task_id: str):
+    """获取Milvus可视化任务状态"""
+    if task_id not in visualization_tasks:
+        raise HTTPException(status_code=404, detail="Milvus可视化任务不存在")
+    
+    return visualization_tasks[task_id]

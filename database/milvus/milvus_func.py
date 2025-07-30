@@ -282,7 +282,7 @@ def partition_message(orig_str: str):
 
 
 def embed_into_milvus(low_ids: list, data: np.ndarray, chunks: list, wm: VectorWatermark,
-                      db_params, collection_name, id_field, vector_field):
+                     db_params, collection_name, id_field, vector_field):
     """
     按 low_ids 顺序对原始集合中的向量嵌入水印，并写回Milvus
     使用循环分配方式，确保每个块都有足够的向量
@@ -290,9 +290,10 @@ def embed_into_milvus(low_ids: list, data: np.ndarray, chunks: list, wm: VectorW
     # 获取低入度向量数据
     idx_map = {id_: i for i, id_ in enumerate(low_ids)}
     sel_data = data[[idx_map[id_] for id_ in low_ids]]
-    norms = np.linalg.norm(sel_data, axis=1) + 1e-8
 
     stegos = []
+    original_vectors = []  # 新增：保存原始向量
+    embedded_vectors = []  # 新增：保存嵌入后的向量
     device = wm.device
 
     # 统计每个块分配了多少向量，用于日志
@@ -311,18 +312,32 @@ def embed_into_milvus(low_ids: list, data: np.ndarray, chunks: list, wm: VectorW
 
         # 嵌入水印
         vec = sel_data[i]
-        cover = torch.tensor(vec, device=device).unsqueeze(0)
+        original_vectors.append(vec.copy())  # 保存原始向量副本
+        
+        # 记录原始向量的范数
+        original_norm = np.linalg.norm(vec)
+        
+        # 归一化向量
+        normalized_vec = vec / (original_norm + 1e-8)
+        cover = torch.tensor(normalized_vec, device=device).unsqueeze(0)
 
         msg_t = torch.tensor([msg_bits], dtype=torch.float32, device=device)
         stego, _ = wm.encode(cover, message=msg_t)
-        stego = stego.squeeze(0).cpu().numpy().astype(np.float32)
-        stegos.append(stego)
+        
+        # 将结果转换回numpy，并恢复原始范数
+        stego_np = stego.squeeze(0).cpu().numpy()
+        stego_restored = stego_np * original_norm
+        stegos.append(stego_restored.astype(np.float32))
+        embedded_vectors.append(stego_restored.astype(np.float32))  # 保存嵌入后的向量
 
     # 打印每个区块分配的向量数量
     print(f"Block distribution: {block_counters}")
 
     # 更新向量到Milvus
-    return update_vectors(db_params, collection_name, id_field, vector_field, low_ids, stegos)
+    updated = update_vectors(db_params, collection_name, id_field, vector_field, low_ids, stegos)
+    
+    # 修改：返回更新数量和嵌入前后的向量
+    return updated, np.array(original_vectors), np.array(embedded_vectors)
 
 
 def extract_from_milvus(db_params, collection_name, id_field, vector_field, low_ids: list, wm: VectorWatermark):
@@ -640,10 +655,18 @@ def embed_watermark(db_params, collection_name, id_field, vector_field, message,
     try:
         model_path = Config.get_model_path(vec_dim)
         wm = VectorWatermark(vec_dim=vec_dim, msg_len=MSG_LEN, model_path=model_path)
-        updated = embed_into_milvus(low_ids, data, chunks, wm, db_params, collection_name, id_field, vector_field)
-
+        
+        # 修改：接收嵌入前后的向量
+        updated, orig_samples, emb_samples = embed_into_milvus(low_ids, data, chunks, wm, db_params, collection_name, id_field, vector_field)
+        
         # 计算实际嵌入率
         actual_rate = len(low_ids) / len(ids)
+        
+        # 直接使用返回的向量进行降维和可视化
+        visualization_data = reduce_dimensions(
+            orig_samples,  # 直接使用嵌入前的向量
+            emb_samples    # 直接使用嵌入后的向量
+        )
 
         # 返回嵌入结果
         return {
@@ -655,7 +678,8 @@ def embed_watermark(db_params, collection_name, id_field, vector_field, message,
             "embed_rate": actual_rate,
             "plaintext": message,
             "encrypted_preview": encrypted_message[:8] + "...",  # 只显示前8字符
-            "nonce": nonce_hex  # 返回nonce供用户保存
+            "nonce": nonce_hex,  # 返回nonce供用户保存
+            "visualization_data": visualization_data  # 添加可视化数据
         }
     except Exception as e:
         return {"success": False, "error": f"嵌入水印失败: {str(e)}"}
@@ -819,3 +843,81 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, vec_di
 
     except Exception as e:
         return {"success": False, "error": f"提取水印失败: {str(e)}"}
+
+
+def reduce_dimensions(original_vectors, embedded_vectors, method="tsne", n_samples=None):
+    """优化后的降维算法实现"""
+    # 使用预处理 + 多步降维策略
+    orig_samples = original_vectors
+    emb_samples = embedded_vectors
+    
+    # 合并向量以便一起降维
+    combined = np.vstack([orig_samples, emb_samples])
+    
+    if method == "tsne":
+        from sklearn.decomposition import PCA
+        from sklearn.manifold import TSNE
+        
+        # 预处理步骤: 先用PCA将高维向量降到中间维度(如50维)
+        if combined.shape[1] > 50:
+            pca = PCA(n_components=50)
+            combined_reduced = pca.fit_transform(combined)
+        else:
+            combined_reduced = combined
+            
+        # 使用优化的t-SNE参数
+        tsne = TSNE(
+            n_components=2, 
+            perplexity=min(30, combined_reduced.shape[0] // 5),  # 动态调整perplexity
+            n_iter=1000,
+            method='barnes_hut',  # 使用更快的近似算法
+            n_jobs=-1,  # 使用所有CPU核心
+            random_state=42
+        )
+        
+        reduced = tsne.fit_transform(combined_reduced)
+    else:
+        # PCA通常足够快，只需优化参数
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=2, random_state=42)
+        reduced = pca.fit_transform(combined)
+    
+    # 分离结果
+    n_orig = len(orig_samples)
+    original_reduced = reduced[:n_orig].tolist()
+    embedded_reduced = reduced[n_orig:].tolist()
+    
+    # 计算欧氏距离
+    distances = np.sqrt(np.sum((orig_samples - emb_samples)**2, axis=1))
+    avg_distance = float(np.mean(distances))
+    max_distance = float(np.max(distances))
+    
+    # 使用PyTorch的F.cosine_similarity计算余弦相似度，与test.py保持一致
+    import torch
+    import torch.nn.functional as F
+    
+    # 转换为PyTorch张量
+    orig_tensor = torch.tensor(orig_samples, dtype=torch.float32)
+    emb_tensor = torch.tensor(emb_samples, dtype=torch.float32)
+    
+    # 使用F.cosine_similarity计算余弦相似度
+    cosine_similarities = F.cosine_similarity(orig_tensor, emb_tensor, dim=1)
+    avg_cosine_similarity = float(cosine_similarities.mean().item())
+    
+    # 还可以添加最小、最大和标准差，便于更全面的评估
+    min_cos_sim = float(cosine_similarities.min().item())
+    max_cos_sim = float(cosine_similarities.max().item())
+    std_cos_sim = float(cosine_similarities.std().item())
+    
+    return {
+        "original": original_reduced,
+        "embedded": embedded_reduced,
+        "avg_distance": avg_distance,
+        "max_distance": max_distance,
+        "avg_cosine_similarity": avg_cosine_similarity,
+        "min_cosine_similarity": min_cos_sim,
+        "max_cosine_similarity": max_cos_sim,
+        "std_cosine_similarity": std_cos_sim,
+        "method": method,
+        "n_samples": len(original_reduced)
+    }

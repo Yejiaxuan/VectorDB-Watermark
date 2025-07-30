@@ -1,5 +1,6 @@
 // web_ui/src/pages/MilvusPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer} from 'recharts';
 import Toast from '../components/Toast';
 import Combobox from '../components/Combobox';
 import {
@@ -83,6 +84,19 @@ export default function MilvusPage() {
   const [nonce, setNonce] = useState(''); // nonce字段
   const [lastNonce, setLastNonce] = useState(''); // 记录上次嵌入返回的nonce
 
+  // 可视化相关状态
+  const [visualizationData, setVisualizationData] = useState(null);
+  const [isProcessingVisualization, setIsProcessingVisualization] = useState(false);
+
+  // 缩放相关状态
+  const [zoomDomain, setZoomDomain] = useState(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [initialDomain, setInitialDomain] = useState({ x: [-50, 50], y: [-50, 50] });
+
+  // 拖拽状态
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const chartRef = useRef(null);
   
   // —— Toast 相关 ——
   const [toasts, setToasts] = useState([]);
@@ -242,6 +256,156 @@ export default function MilvusPage() {
     }, 2000); // 每2秒轮询一次
   };
 
+  // 计算初始域范围
+  const calculateInitialDomain = (data) => {
+    if (!data || !data.original || !data.embedded) return { x: [-50, 50], y: [-50, 50] };
+    
+    // 合并所有点
+    const allPoints = [
+      ...data.original.map(point => ({ x: point[0], y: point[1] })),
+      ...data.embedded.map(point => ({ x: point[0], y: point[1] }))
+    ];
+    
+    // 计算最小和最大值并添加一些边距
+    const xValues = allPoints.map(p => p.x);
+    const yValues = allPoints.map(p => p.y);
+    
+    const minX = Math.floor(Math.min(...xValues));
+    const maxX = Math.ceil(Math.max(...xValues));
+    const minY = Math.floor(Math.min(...yValues));
+    const maxY = Math.ceil(Math.max(...yValues));
+    
+    // 添加边距
+    const padding = 5;
+    return {
+      x: [minX - padding, maxX + padding],
+      y: [minY - padding, maxY + padding]
+    };
+  };
+
+  // 重置缩放
+  const resetZoom = () => {
+    setZoomDomain(null);
+    setZoomLevel(1);
+  };
+
+  // 放大
+  const zoomIn = () => {
+    setZoomLevel(prev => {
+      const newLevel = prev + 0.5;
+      const currentDomain = zoomDomain || initialDomain;
+      const centerX = (currentDomain.x[0] + currentDomain.x[1]) / 2;
+      const centerY = (currentDomain.y[0] + currentDomain.y[1]) / 2;
+      const rangeX = currentDomain.x[1] - currentDomain.x[0];
+      const rangeY = currentDomain.y[1] - currentDomain.y[0];
+      
+      const newRangeX = rangeX / (newLevel / prev);
+      const newRangeY = rangeY / (newLevel / prev);
+      
+      setZoomDomain({
+        x: [centerX - newRangeX / 2, centerX + newRangeX / 2],
+        y: [centerY - newRangeY / 2, centerY + newRangeY / 2]
+      });
+      
+      return newLevel;
+    });
+  };
+
+  // 缩小
+  const zoomOut = () => {
+    setZoomLevel(prev => {
+      if (prev <= 1) {
+        resetZoom();
+        return 1;
+      }
+      
+      const newLevel = prev - 0.5;
+      const currentDomain = zoomDomain || initialDomain;
+      const centerX = (currentDomain.x[0] + currentDomain.x[1]) / 2;
+      const centerY = (currentDomain.y[0] + currentDomain.y[1]) / 2;
+      const rangeX = currentDomain.x[1] - currentDomain.x[0];
+      const rangeY = currentDomain.y[1] - currentDomain.y[0];
+      
+      const newRangeX = rangeX / (newLevel / prev);
+      const newRangeY = rangeY / (newLevel / prev);
+      
+      setZoomDomain({
+        x: [centerX - newRangeX / 2, centerX + newRangeX / 2],
+        y: [centerY - newRangeY / 2, centerY + newRangeY / 2]
+      });
+      
+      return newLevel;
+    });
+  };
+
+  // 开始拖拽
+  const handleChartMouseDown = (e) => {
+    if (zoomLevel <= 1) return; // 只在放大状态下允许拖拽
+    
+    setIsDragging(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    
+    // 改变鼠标样式
+    document.body.style.cursor = 'grabbing';
+    e.preventDefault(); // 防止文本选择
+  };
+
+  // 处理拖拽过程
+  const handleMouseMove = (e) => {
+    if (!isDragging || !zoomDomain) return;
+    
+    // 计算鼠标移动的距离
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    
+    const chartRect = chartRef.current?.getBoundingClientRect();
+    if (!chartRect) return;
+    
+    // 计算坐标系中的移动量
+    const domainWidth = zoomDomain.x[1] - zoomDomain.x[0];
+    const domainHeight = zoomDomain.y[1] - zoomDomain.y[0];
+    
+    const moveX = (dx / chartRect.width) * domainWidth;
+    const moveY = (dy / chartRect.height) * domainHeight;
+    
+    // 更新坐标范围，注意方向需要反转
+    setZoomDomain({
+      x: [zoomDomain.x[0] - moveX, zoomDomain.x[1] - moveX], // 水平方向保持不变
+      y: [zoomDomain.y[0] + moveY, zoomDomain.y[1] + moveY], // 改为加号，反转y方向
+    });
+    
+    setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  // 结束拖拽
+  const handleMouseUp = () => {
+    if (isDragging) {
+      setIsDragging(false);
+      document.body.style.cursor = '';
+    }
+  };
+
+  // 添加拖拽事件监听
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, zoomDomain]);
+
+  // 当可视化数据变化时，计算初始域
+  useEffect(() => {
+    if (visualizationData) {
+      setInitialDomain(calculateInitialDomain(visualizationData));
+      resetZoom();
+    }
+  }, [visualizationData]);
+
   // 拉集合列表
   useEffect(() => {
     if (connected) {
@@ -314,15 +478,32 @@ export default function MilvusPage() {
       const dbParams = { host, port };
       const result = await embedMilvusWatermark(dbParams, collection, primaryKey, vectorField, message, embedRate, encryptionKey);
       
-      // 保存返回的nonce
-      if (result.nonce) {
-        setLastNonce(result.nonce);
+      if (result.success) {
+        setLastEmbedRate(embedRate);
+        
+        // 直接使用后端返回的可视化数据
+        if (result.visualization_data) {
+          console.log("收到的可视化数据:", result.visualization_data);
+          
+          // 直接使用已处理好的可视化数据
+          setVisualizationData(result.visualization_data);
+          setInitialDomain(calculateInitialDomain(result.visualization_data));
+          setZoomDomain(null);
+          setZoomLevel(1);
+          setIsProcessingVisualization(false);
+        }
+        
+        // 保存返回的nonce
+        if (result.nonce) {
+          setLastNonce(result.nonce);
+        }
+        
+        setEmbedResult(`${result.message}\n\n💡 提示：提取水印时请使用相同的嵌入率 ${(embedRate * 100).toFixed(1)}% 和相同的解密密钥以确保正确提取。\n\n⚠️ 重要：请保存以下nonce值，提取水印时需要：\n${result.nonce}`);
+        showToast(`水印嵌入成功！使用了 ${(embedRate * 100).toFixed(1)}% 的嵌入率`, 'success');
+      } else {
+        setEmbedResult(`错误: ${result.error || "未知错误"}`);
+        showToast(`嵌入失败：${result.error || "未知错误"}`, 'error');
       }
-      
-      setEmbedResult(`${result.message}\n\n💡 提示：提取水印时请使用相同的嵌入率 ${(embedRate * 100).toFixed(1)}% 和相同的解密密钥以确保正确提取。\n\n⚠️ 重要：请保存以下nonce值，提取水印时需要：\n${result.nonce}`);
-      setLastEmbedRate(embedRate);
-      showToast(`水印嵌入成功！使用了 ${(embedRate * 100).toFixed(1)}% 的嵌入率`, 'success');
-      
     } catch (error) {
       setEmbedResult(`错误: ${error.message}`);
       showToast(`嵌入失败：${error.message}`, 'error');
@@ -1148,6 +1329,129 @@ export default function MilvusPage() {
                                 </div>
                               )}
                             </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 可视化组件 */}
+                      {visualizationData && (
+                        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg animate-scale-in">
+                          <h4 className="font-medium text-blue-800 mb-3 flex items-center">
+                            <svg className="w-4 h-4 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            向量分布可视化
+                          </h4>
+                          
+                          {/* 缩放控制按钮 */}
+                          <div className="bg-white p-3 rounded-lg shadow mb-3">
+                            <div className="flex justify-end mb-2">
+                              <div className="bg-white rounded-lg shadow-sm border border-gray-200 flex">
+                                <button
+                                  onClick={zoomIn}
+                                  className="p-2 hover:bg-gray-100 text-gray-700 focus:outline-none"
+                                  title="放大"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={zoomOut}
+                                  className="p-2 hover:bg-gray-100 text-gray-700 focus:outline-none"
+                                  title="缩小"
+                                  disabled={zoomLevel <= 1}
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12H6" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={resetZoom}
+                                  className="p-2 hover:bg-gray-100 text-gray-700 focus:outline-none"
+                                  title="重置缩放"
+                                  disabled={zoomLevel === 1}
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                            {/* 添加可拖拽的图表容器 */}
+                            <div 
+                              ref={chartRef}
+                              onMouseDown={handleChartMouseDown}
+                              style={{ 
+                                width: '100%', 
+                                height: '350px', 
+                                cursor: zoomLevel > 1 ? 'grab' : 'default' 
+                              }}
+                            >
+                              <ResponsiveContainer width="100%" height={350}>
+                                <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                                  <XAxis 
+                                    type="number" 
+                                    dataKey="x" 
+                                    name="X" 
+                                    domain={zoomDomain ? zoomDomain.x : initialDomain.x}
+                                    allowDataOverflow
+                                  />
+                                  <YAxis 
+                                    type="number" 
+                                    dataKey="y" 
+                                    name="Y" 
+                                    domain={zoomDomain ? zoomDomain.y : initialDomain.y}
+                                    allowDataOverflow
+                                  />
+                                  <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                                    if (active && payload && payload.length) {
+                                      return (
+                                        <div className="bg-white p-2 border border-gray-200 shadow-sm rounded text-xs">
+                                          <p>X: {payload[0].value.toFixed(3)}</p>
+                                          <p>Y: {payload[1].value.toFixed(3)}</p>
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  }} />
+                                  <Legend />
+                                  <Scatter name="原始向量" data={visualizationData.original.map((point, i) => ({ x: point[0], y: point[1] }))} fill="#8884d8" shape="circle" />
+                                  <Scatter name="嵌入水印后" data={visualizationData.embedded.map((point, i) => ({ x: point[0], y: point[1] }))} fill="#82ca9d" shape="cross" />
+                                </ScatterChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-blue-100 p-3 rounded">
+                              <div className="text-sm font-medium text-blue-800 mb-1">平均欧氏距离</div>
+                              <div className="text-lg font-bold text-blue-900">
+                                {visualizationData.avg_distance.toFixed(5)}
+                              </div>
+                            </div>
+                            <div className="bg-green-100 p-3 rounded">
+                              <div className="text-sm font-medium text-green-800 mb-1">余弦相似度</div>
+                              <div className="text-lg font-bold text-green-900">
+                                {visualizationData.avg_cosine_similarity ? 
+                                  visualizationData.avg_cosine_similarity.toFixed(5) : 
+                                  'N/A'}
+                              </div>
+                            </div>
+                            <div className="bg-purple-100 p-3 rounded">
+                              <div className="text-sm font-medium text-purple-800 mb-1">样本数量</div>
+                              <div className="text-lg font-bold text-purple-900">
+                                {visualizationData.n_samples}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="mt-3 text-xs text-gray-600">
+                            <p>注: 图表使用{visualizationData.method === 'tsne' ? 't-SNE' : 'PCA'}降维算法将高维向量降至2D空间显示。原始向量显示为圆点，水印向量显示为十字。</p>
+                            <p className="mt-1">
+                              <span className="font-medium">余弦相似度:</span> 值越接近1表示水印嵌入前后向量方向变化越小；
+                              <span className="font-medium ml-2">欧氏距离:</span> 值越小表示水印嵌入前后向量绝对变化越小。
+                            </p>
                           </div>
                         </div>
                       )}
