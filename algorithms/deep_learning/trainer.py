@@ -26,9 +26,9 @@ def lambda_mse(epoch: int, total: int) -> float:
 @torch.no_grad()
 def evaluate(model_tuple, loader, noise, lam, device):
     enc, dec = model_tuple
-    enc.eval();
+    enc.eval()
     dec.eval()
-    tot_loss = tot_bce = tot_ber = 0.0;
+    tot_loss = tot_bce = tot_ber = 0.0
     n = 0
     for cover, msg in loader:
         cover = cover.to(device).float()
@@ -51,8 +51,8 @@ def evaluate(model_tuple, loader, noise, lam, device):
         loss = bce + lam * mse  # mse 此处无用，只保持公式一致
         ber = (probs > .5).float().ne(msg).float().mean()
 
-        tot_loss += loss.item();
-        tot_bce += bce.item();
+        tot_loss += loss.item()
+        tot_bce += bce.item()
         tot_ber += ber.item()
         n += 1
     return tot_loss / n, tot_bce / n, tot_ber / n
