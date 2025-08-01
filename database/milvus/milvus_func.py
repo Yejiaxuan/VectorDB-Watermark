@@ -665,7 +665,8 @@ def embed_watermark(db_params, collection_name, id_field, vector_field, message,
         # 直接使用返回的向量进行降维和可视化
         visualization_data = reduce_dimensions(
             orig_samples,  # 直接使用嵌入前的向量
-            emb_samples    # 直接使用嵌入后的向量
+            emb_samples,    # 直接使用嵌入后的向量
+            n_samples=500
         )
 
         # 返回嵌入结果
@@ -847,12 +848,47 @@ def extract_watermark(db_params, collection_name, id_field, vector_field, vec_di
 
 def reduce_dimensions(original_vectors, embedded_vectors, method="tsne", n_samples=None):
     """优化后的降维算法实现"""
-    # 使用预处理 + 多步降维策略
+    # 使用全部数据计算统计指标
     orig_samples = original_vectors
     emb_samples = embedded_vectors
+    total_samples = len(original_vectors)
     
-    # 合并向量以便一起降维
-    combined = np.vstack([orig_samples, emb_samples])
+    # 计算欧氏距离（使用全部样本）
+    distances = np.sqrt(np.sum((orig_samples - emb_samples)**2, axis=1))
+    avg_distance = float(np.mean(distances))
+    max_distance = float(np.max(distances))
+    
+    # 使用PyTorch的F.cosine_similarity计算余弦相似度（使用全部样本）
+    import torch
+    import torch.nn.functional as F
+    
+    # 转换为PyTorch张量
+    orig_tensor = torch.tensor(orig_samples, dtype=torch.float32)
+    emb_tensor = torch.tensor(emb_samples, dtype=torch.float32)
+    
+    # 使用F.cosine_similarity计算余弦相似度
+    cosine_similarities = F.cosine_similarity(orig_tensor, emb_tensor, dim=1)
+    avg_cosine_similarity = float(cosine_similarities.mean().item())
+    min_cos_sim = float(cosine_similarities.min().item())
+    max_cos_sim = float(cosine_similarities.max().item())
+    std_cos_sim = float(cosine_similarities.std().item())
+    
+    # 如果设置了最大样本数且样本数量超过限制，则随机采样
+    sampled = False
+    if n_samples and total_samples > n_samples:
+        sampled = True
+        # 随机选择样本索引
+        indices = np.random.choice(total_samples, n_samples, replace=False)
+        vis_orig_samples = orig_samples[indices]
+        vis_emb_samples = emb_samples[indices]
+        print(f"对可视化数据进行采样：从{total_samples}个样本中随机选择{n_samples}个用于降维")
+    else:
+        # 不需要采样或样本量低于阈值
+        vis_orig_samples = orig_samples
+        vis_emb_samples = emb_samples
+    
+    # 合并向量以便一起降维（仅使用采样后的数据）
+    combined = np.vstack([vis_orig_samples, vis_emb_samples])
     
     if method == "tsne":
         from sklearn.decomposition import PCA
@@ -883,31 +919,9 @@ def reduce_dimensions(original_vectors, embedded_vectors, method="tsne", n_sampl
         reduced = pca.fit_transform(combined)
     
     # 分离结果
-    n_orig = len(orig_samples)
+    n_orig = len(vis_orig_samples)
     original_reduced = reduced[:n_orig].tolist()
     embedded_reduced = reduced[n_orig:].tolist()
-    
-    # 计算欧氏距离
-    distances = np.sqrt(np.sum((orig_samples - emb_samples)**2, axis=1))
-    avg_distance = float(np.mean(distances))
-    max_distance = float(np.max(distances))
-    
-    # 使用PyTorch的F.cosine_similarity计算余弦相似度，与test.py保持一致
-    import torch
-    import torch.nn.functional as F
-    
-    # 转换为PyTorch张量
-    orig_tensor = torch.tensor(orig_samples, dtype=torch.float32)
-    emb_tensor = torch.tensor(emb_samples, dtype=torch.float32)
-    
-    # 使用F.cosine_similarity计算余弦相似度
-    cosine_similarities = F.cosine_similarity(orig_tensor, emb_tensor, dim=1)
-    avg_cosine_similarity = float(cosine_similarities.mean().item())
-    
-    # 还可以添加最小、最大和标准差，便于更全面的评估
-    min_cos_sim = float(cosine_similarities.min().item())
-    max_cos_sim = float(cosine_similarities.max().item())
-    std_cos_sim = float(cosine_similarities.std().item())
     
     return {
         "original": original_reduced,
@@ -919,5 +933,7 @@ def reduce_dimensions(original_vectors, embedded_vectors, method="tsne", n_sampl
         "max_cosine_similarity": max_cos_sim,
         "std_cosine_similarity": std_cos_sim,
         "method": method,
-        "n_samples": len(original_reduced)
+        "n_samples": len(original_reduced),
+        "total_samples": total_samples,  # 添加总样本数量
+        "sampled": sampled  # 是否进行了采样
     }

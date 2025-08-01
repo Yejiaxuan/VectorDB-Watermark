@@ -235,7 +235,7 @@ export async function extractWatermark(dbParams, table, idColumn, vectorColumn, 
  * @param {string} method 降维方法 (tsne 或 pca)
  * @returns {Promise<Object>} 降维结果
  */
-export async function getVectorVisualization(originalVectors, embeddedVectors, method = 'tsne', useAllSamples = true) {
+export async function getVectorVisualization(originalVectors, embeddedVectors, method = 'tsne', useAllSamples = false, maxSamples = 500) {
   const res = await fetch('/api/vector_visualization', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -243,7 +243,8 @@ export async function getVectorVisualization(originalVectors, embeddedVectors, m
       original_vectors: originalVectors,
       embedded_vectors: embeddedVectors,
       method,
-      use_all_samples: useAllSamples
+      use_all_samples: useAllSamples,
+      max_samples: maxSamples
     })
   });
   
@@ -511,7 +512,7 @@ export async function trainMilvusModel(dbParams, collectionName, vectorField, di
  * @param {boolean} useAllSamples 是否使用所有样本
  * @returns {Promise<Object>} 降维结果
  */
-export async function getMilvusVectorVisualization(originalVectors, embeddedVectors, method = 'tsne', useAllSamples = true) {
+export async function getMilvusVectorVisualization(originalVectors, embeddedVectors, method = 'tsne', useAllSamples = false, maxSamples = 500) {
   const res = await fetch('/api/milvus/vector_visualization', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -519,7 +520,8 @@ export async function getMilvusVectorVisualization(originalVectors, embeddedVect
       original_vectors: originalVectors,
       embedded_vectors: embeddedVectors,
       method,
-      use_all_samples: useAllSamples
+      use_all_samples: useAllSamples,
+      max_samples: maxSamples
     })
   });
   
@@ -539,7 +541,7 @@ export async function getMilvusVectorVisualization(originalVectors, embeddedVect
  * @param {boolean} useAllSamples 是否使用所有样本
  * @returns {Promise<Object>} 包含任务ID和预估时间的响应
  */
-export async function getMilvusVectorVisualizationAsync(originalVectors, embeddedVectors, method = 'tsne', useAllSamples = true) {
+export async function getMilvusVectorVisualizationAsync(originalVectors, embeddedVectors, method = 'tsne', useAllSamples = false, maxSamples = 500) {
   const res = await fetch('/api/milvus/vector_visualization_async', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -547,7 +549,8 @@ export async function getMilvusVectorVisualizationAsync(originalVectors, embedde
       original_vectors: originalVectors,
       embedded_vectors: embeddedVectors,
       method,
-      use_all_samples: useAllSamples
+      use_all_samples: useAllSamples,
+      max_samples: maxSamples
     })
   });
   

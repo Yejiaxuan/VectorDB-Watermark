@@ -14,6 +14,7 @@ import threading
 import numpy as np
 import uuid
 import time
+from typing import Optional  # 添加这一行
 
 app = FastAPI()
 app.add_middleware(
@@ -330,19 +331,21 @@ async def vector_visualization(
     original_vectors: list = Body(..., description="原始向量列表"),
     embedded_vectors: list = Body(..., description="嵌入水印后的向量列表"),
     method: str = Body("tsne", description="降维方法，tsne或pca"),
-    use_all_samples: bool = Body(False, description="是否使用所有样本")
+    use_all_samples: bool = Body(False, description="是否使用所有样本"),
+    max_samples: Optional[int] = Body(500, description="最大样本数量")
 ):
-    """
-    对向量进行降维处理用于可视化
-    """
+    """对向量进行降维处理用于可视化"""
     try:
         # 转换为numpy数组
         orig_array = np.array(original_vectors)
         emb_array = np.array(embedded_vectors)
         
-        # 调用降维处理函数，传递use_all_samples参数
+        # 设置n_samples参数
+        n_samples = None if use_all_samples else max_samples
+        
+        # 调用降维处理函数
         result = pgvector_manager.get_embedding_visualization(
-            orig_array, emb_array, method=method, use_all_samples=use_all_samples
+            orig_array, emb_array, method=method, n_samples=n_samples
         )
         
         if result["success"]:
@@ -706,7 +709,8 @@ async def milvus_vector_visualization(
     original_vectors: list = Body(..., description="原始向量列表"),
     embedded_vectors: list = Body(..., description="嵌入水印后的向量列表"),
     method: str = Body("tsne", description="降维方法，tsne或pca"),
-    use_all_samples: bool = Body(False, description="是否使用所有样本")
+    use_all_samples: bool = Body(False, description="是否使用所有样本"),
+    max_samples: Optional[int] = Body(500, description="最大样本数量")
 ):
     """
     对Milvus向量进行降维处理用于可视化
@@ -716,9 +720,12 @@ async def milvus_vector_visualization(
         orig_array = np.array(original_vectors)
         emb_array = np.array(embedded_vectors)
         
-        # 调用降维处理函数，传递use_all_samples参数
+        # 设置n_samples参数
+        n_samples = None if use_all_samples else max_samples
+        
+        # 调用降维处理函数
         result = milvus_manager.get_embedding_visualization(
-            orig_array, emb_array, method=method, use_all_samples=use_all_samples
+            orig_array, emb_array, method=method, use_all_samples=use_all_samples, n_samples=n_samples
         )
         
         if result["success"]:
@@ -735,7 +742,8 @@ async def milvus_vector_visualization_async(
     original_vectors: list = Body(...),
     embedded_vectors: list = Body(...),
     method: str = Body("tsne"),
-    use_all_samples: bool = Body(False)
+    use_all_samples: bool = Body(False),
+    max_samples: Optional[int] = Body(500, description="最大样本数量")
 ):
     """异步处理Milvus向量可视化"""
     # 生成唯一任务ID
@@ -756,7 +764,8 @@ async def milvus_vector_visualization_async(
         original_vectors,
         embedded_vectors,
         method,
-        use_all_samples
+        use_all_samples,
+        max_samples
     )
     
     return {
@@ -767,7 +776,7 @@ async def milvus_vector_visualization_async(
     }
 
 
-def process_milvus_visualization_in_background(task_id, original_vectors, embedded_vectors, method, use_all_samples):
+def process_milvus_visualization_in_background(task_id, original_vectors, embedded_vectors, method, use_all_samples,max_samples=500):
     """后台处理Milvus可视化任务"""
     try:
         # 更新进度
@@ -780,9 +789,11 @@ def process_milvus_visualization_in_background(task_id, original_vectors, embedd
         # 更新进度
         visualization_tasks[task_id]["progress"] = 20
         
+        # 设置n_samples参数
+        n_samples = None if use_all_samples else max_samples
         # 调用优化后的降维函数
         result = milvus_manager.get_embedding_visualization(
-            orig_array, emb_array, method=method, use_all_samples=use_all_samples
+            orig_array, emb_array, method=method, use_all_samples=use_all_samples, n_samples=n_samples
         )
         
         # 更新任务状态

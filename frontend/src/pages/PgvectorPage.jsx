@@ -1603,6 +1603,13 @@ export default function PgvectorPage() {
                                   </div>
                                 </div>
                               </div>
+
+                              {visualizationData.sampled && (
+                              <div className="mt-2 text-xs text-gray-600 bg-blue-50 p-2 rounded">
+                                <span className="font-medium">注:</span> 为提高性能，当前图表显示从{visualizationData.total_samples}个样本中随机选择的{visualizationData.n_samples}个样本。
+                                统计指标（余弦相似度、欧氏距离）仍基于全部{visualizationData.total_samples}个样本计算。
+                              </div>
+                            )}
                               
                               <div className="mt-3 text-xs text-gray-600">
                                 <p>注: 图表使用{visualizationData.method === 'tsne' ? 't-SNE' : 'PCA'}降维算法将高维向量降至2D空间显示。原始向量显示为圆点，水印向量显示为十字。</p>
