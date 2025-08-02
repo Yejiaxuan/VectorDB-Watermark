@@ -23,7 +23,7 @@ class WatermarkEmbedRequest(BaseModel):
     vector_column: str  # 向量列名
     message: str  # 明文消息（16字节）
     embed_rate: float = 0.1  # 水印嵌入率，默认10%
-    encryption_key: str  # AES-GCM加密密钥
+    encryption_key: str  # AES-GCM加密密钥，同时用作伪随机载体选择的种子
     total_vecs: int = 1600  # 使用的向量数量，默认1600（已弃用，保留兼容性）
 
 
@@ -35,7 +35,7 @@ class MilvusWatermarkEmbedRequest(BaseModel):
     vector_field: str  # 向量字段名
     message: str  # 明文消息（16字节）
     embed_rate: float = 0.1  # 水印嵌入率，默认10%
-    encryption_key: str  # AES-GCM加密密钥
+    encryption_key: str  # AES-GCM加密密钥，同时用作伪随机载体选择的种子
     total_vecs: int = 1600  # 使用的向量数量，默认1600（已弃用，保留兼容性）
 
 
@@ -46,7 +46,7 @@ class WatermarkExtractRequest(BaseModel):
     id_column: str  # 主键列名
     vector_column: str  # 向量列名
     embed_rate: float = 0.1  # 水印嵌入率，默认10%（提取时需要与嵌入时保持一致）
-    encryption_key: str  # AES-GCM解密密钥
+    encryption_key: str  # AES-GCM解密密钥，同时用作伪随机载体选择的种子
     nonce: str = None  # nonce的十六进制表示，用于解密
 
 
@@ -57,5 +57,5 @@ class MilvusWatermarkExtractRequest(BaseModel):
     id_field: str  # 主键字段名
     vector_field: str  # 向量字段名
     embed_rate: float = 0.1  # 水印嵌入率，默认10%（提取时需要与嵌入时保持一致）
-    encryption_key: str  # AES-GCM解密密钥
+    encryption_key: str  # AES-GCM解密密钥，同时用作伪随机载体选择的种子
     nonce: str = None  # nonce的十六进制表示，用于解密

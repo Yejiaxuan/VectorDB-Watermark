@@ -298,7 +298,7 @@ class MilvusManager:
             encryption_key: str = None
     ) -> Dict[str, Any]:
         """
-        在指定集合的向量字段中嵌入水印，使用AES-GCM加密明文消息
+        在指定集合的向量字段中嵌入水印，使用AES-GCM加密明文消息，支持伪随机载体选择
         
         Args:
             db_params: 数据库连接参数
@@ -307,7 +307,7 @@ class MilvusManager:
             vector_field: 向量字段名
             message: 明文消息（16字节）
             embed_rate: 水印嵌入率，默认10%
-            encryption_key: AES-GCM加密密钥
+            encryption_key: AES-GCM加密密钥，同时用作伪随机载体选择的种子
             
         Returns:
             嵌入结果字典，包含nonce供用户保存
@@ -355,7 +355,7 @@ class MilvusManager:
             nonce: str = None
     ) -> Dict[str, Any]:
         """
-        从指定集合的向量字段中提取水印，使用AES-GCM解密得到明文消息
+        从指定集合的向量字段中提取水印，使用AES-GCM解密得到明文消息，支持伪随机载体选择
         
         Args:
             db_params: 数据库连接参数
@@ -363,7 +363,7 @@ class MilvusManager:
             id_field: 主键字段名
             vector_field: 向量字段名
             embed_rate: 水印嵌入率，默认10%
-            encryption_key: AES-GCM解密密钥
+            encryption_key: AES-GCM解密密钥，同时用作伪随机载体选择的种子
             nonce: nonce的十六进制表示，必须提供用于解密
             
         Returns:

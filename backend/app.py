@@ -89,7 +89,7 @@ async def list_primary_keys(
 @app.post("/api/embed_watermark")
 async def embed_watermark_api(request: WatermarkEmbedRequest):
     """
-    在指定表的向量列中嵌入水印，使用AES-GCM加密明文消息
+    在指定表的向量列中嵌入水印，使用AES-GCM加密明文消息，支持伪随机载体选择
     """
     result = pgvector_manager.embed_watermark(
         db_params=request.db_params,
@@ -113,7 +113,7 @@ async def embed_watermark_api(request: WatermarkEmbedRequest):
 @app.post("/api/extract-watermark")
 async def extract_watermark_api(request: WatermarkExtractRequest):
     """
-    从指定表的向量列中提取水印，使用AES-GCM解密得到明文消息
+    从指定表的向量列中提取水印，使用AES-GCM解密得到明文消息，支持伪随机载体选择
     """
     result = pgvector_manager.extract_watermark(
         db_params=request.db_params,
@@ -498,7 +498,7 @@ async def list_milvus_primary_keys(
 @app.post("/api/milvus/embed_watermark")
 async def embed_milvus_watermark_api(request: MilvusWatermarkEmbedRequest):
     """
-    在指定Milvus集合的向量字段中嵌入水印，使用AES-GCM加密明文消息
+    在指定Milvus集合的向量字段中嵌入水印，使用AES-GCM加密明文消息，支持伪随机载体选择
     """
     result = milvus_manager.embed_watermark(
         db_params=request.db_params,
@@ -519,7 +519,7 @@ async def embed_milvus_watermark_api(request: MilvusWatermarkEmbedRequest):
 @app.post("/api/milvus/extract_watermark")
 async def extract_milvus_watermark_api(request: MilvusWatermarkExtractRequest):
     """
-    从指定Milvus集合的向量字段中提取水印，使用AES-GCM解密得到明文消息
+    从指定Milvus集合的向量字段中提取水印，使用AES-GCM解密得到明文消息，支持伪随机载体选择
     """
     result = milvus_manager.extract_watermark(
         db_params=request.db_params,

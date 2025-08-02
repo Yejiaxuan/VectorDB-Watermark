@@ -124,17 +124,18 @@ def compute_in_degrees(idx, ids: list):
     return {dbid: int(cnts[i]) for i, dbid in enumerate(ids)}
 
 
-def select_low_degree_ids_by_rate(ids: list, in_degs: dict, embed_rate: float):
+def select_low_degree_ids_by_rate(ids: list, in_degs: dict, embed_rate: float, encryption_key: str = None):
     """
-    按水印嵌入率从低入度向量中选择指定数量的向量ID
+    按水印嵌入率从低入度向量中选择指定数量的向量ID，支持伪随机选择
     
     Args:
         ids: 所有向量ID列表
         in_degs: 每个ID的入度字典
         embed_rate: 水印嵌入率（0-1之间的浮点数）
+        encryption_key: 加密密钥，同时用作伪随机载体选择的种子
         
     Returns:
-        选中的向量ID列表，按入度从低到高排序
+        选中的向量ID列表
     """
     # 计算需要选择的向量数量
     target_count = int(len(ids) * embed_rate)
@@ -145,10 +146,91 @@ def select_low_degree_ids_by_rate(ids: list, in_degs: dict, embed_rate: float):
     # 按入度排序所有向量（入度相同时按ID排序确保稳定性）
     sorted_pairs = sorted([(id_, in_degs[id_]) for id_ in ids], key=lambda x: (x[1], x[0]))
 
-    # 选择前target_count个向量
-    selected = [pid for pid, _ in sorted_pairs[:target_count]]
+    if encryption_key is None:
+        # 确定性选择：选择前target_count个向量（仅在没有加密密钥时使用）
+        selected = [pid for pid, _ in sorted_pairs[:target_count]]
+    else:
+        # 伪随机选择：使用加密密钥作为伪随机种子（默认行为）
+        selected = pseudo_random_select_carriers(sorted_pairs, target_count, encryption_key)
 
     return selected
+
+
+def pseudo_random_select_carriers(sorted_pairs: list, target_count: int, encryption_key: str):
+    """
+    使用伪随机算法从候选载体中选择指定数量的向量
+    采用混合策略：每层都有随机性，但低入度层有更高选择概率
+    
+    Args:
+        sorted_pairs: 按入度排序的(id, degree)对列表
+        target_count: 需要选择的向量数量
+        encryption_key: 加密密钥，用作伪随机种子
+        
+    Returns:
+        选中的向量ID列表
+    """
+    import hashlib
+    import random
+    
+    # 使用加密密钥生成伪随机种子
+    seed_str = f"{encryption_key}_{len(sorted_pairs)}_{target_count}"
+    seed = int(hashlib.sha256(seed_str.encode()).hexdigest()[:8], 16)
+    
+    # 设置伪随机数生成器的种子
+    rng = random.Random(seed)
+    
+    # 按入度分组
+    degree_groups = {}
+    for pid, deg in sorted_pairs:
+        if deg not in degree_groups:
+            degree_groups[deg] = []
+        degree_groups[deg].append(pid)
+    
+    selected = []
+    remaining_count = target_count
+    
+    # 混合策略：每层都有随机性，但低入度层有更高的选择概率
+    for degree in sorted(degree_groups.keys()):
+        if remaining_count <= 0:
+            break
+            
+        layer_vectors = degree_groups[degree]
+        
+        # 计算当前层的选择概率（入度越低概率越高）
+        if degree == 0:
+            selection_prob = 0.9  # 入度0：90%概率被选中
+        elif degree == 1:
+            selection_prob = 0.7  # 入度1：70%概率被选中
+        elif degree == 2:
+            selection_prob = 0.5  # 入度2：50%概率被选中
+        elif degree == 3:
+            selection_prob = 0.4  # 入度3：40%概率被选中
+        else:
+            selection_prob = 0.3  # 更高入度：30%概率被选中
+        
+        # 在当前层随机选择（每个向量都有独立的选择概率）
+        layer_candidates = []
+        for pid in layer_vectors:
+            if rng.random() < selection_prob:
+                layer_candidates.append(pid)
+        
+        # 如果候选数量超过剩余需求，随机选择
+        if len(layer_candidates) > remaining_count:
+            layer_selected = rng.sample(layer_candidates, remaining_count)
+        else:
+            layer_selected = layer_candidates
+            
+        selected.extend(layer_selected)
+        remaining_count -= len(layer_selected)
+    
+    # 如果还没选够，从剩余向量中随机补充
+    if remaining_count > 0:
+        remaining_vectors = [pid for pid, _ in sorted_pairs if pid not in selected]
+        if remaining_vectors:
+            additional = rng.sample(remaining_vectors, min(remaining_count, len(remaining_vectors)))
+            selected.extend(additional)
+    
+    return selected[:target_count]
 
 
 def select_low_degree_ids(ids: list, in_degs: dict, k=None):
@@ -469,7 +551,7 @@ def decrypt_32bytes_to_message(encrypted_str: str, password: str, nonce_hex: str
 
 def embed_watermark(db_params, table_name, id_col, emb_col, message, vec_dim, embed_rate=None, encryption_key=None, total_vecs=None, ids_file=None):
     """
-    嵌入水印流程 - 支持AES-GCM加密的明文消息
+    嵌入水印流程 - 支持AES-GCM加密的明文消息和伪随机载体选择
     
     Args:
         db_params: 数据库连接参数
@@ -479,7 +561,7 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, vec_dim, em
         message: 明文消息（16字节）
         vec_dim: 向量维度
         embed_rate: 水印嵌入率（0-1之间的浮点数），优先使用此参数
-        encryption_key: AES-GCM加密密钥
+        encryption_key: AES-GCM加密密钥，同时用作伪随机载体选择的种子
         total_vecs: 使用的向量数量（已弃用，保留兼容性）
         ids_file: ID文件路径（已弃用，保留兼容性）
     """
@@ -518,8 +600,8 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, vec_dim, em
         idx = build_hnsw_index(data.copy(), vec_dim)
         in_deg = compute_in_degrees(idx, ids)
 
-        # 按嵌入率选择低入度向量
-        low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate)
+        # 按嵌入率选择低入度向量，支持伪随机选择
+        low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate, encryption_key)
 
         # 如果选出的向量太少，返回错误
         if len(low_ids) < BLOCK_COUNT:
@@ -550,26 +632,33 @@ def embed_watermark(db_params, table_name, id_col, emb_col, message, vec_dim, em
             n_samples=500
         )
 
+        # 构建返回消息
+        selection_method = "伪随机选择" if encryption_key else "确定性选择"
+        message_text = f"明文消息加密后嵌入完成，使用{selection_method}，嵌入率{actual_rate:.1%}({len(low_ids)}/{len(ids)})，更新了{updated}个向量"
+
         # 返回嵌入结果
         return {
             "success": True,
-            "message": f"明文消息加密后嵌入完成，嵌入率{actual_rate:.1%}({len(low_ids)}/{len(ids)})，更新了{updated}个向量",
+            "message": message_text,
             "updated": updated,
             "used_vectors": len(low_ids),
             "total_vectors": len(ids),
             "embed_rate": actual_rate,
+            "selection_method": selection_method,
+            "pseudo_random_enabled": encryption_key is not None,
             "plaintext": message,
             "encrypted_preview": encrypted_message[:8] + "...",  # 只显示前8字符
             "nonce": nonce_hex,  # 返回nonce供用户保存
+            "carrier_ids": low_ids,  # 返回实际使用的载体向量ID
             "visualization_data": visualization_data  # 添加可视化数据
         }
     except Exception as e:
         return {"success": False, "error": f"嵌入水印失败: {str(e)}"}
 
 
-def extract_watermark(db_params, table_name, id_col, emb_col, vec_dim, embed_rate=None, encryption_key=None, nonce_hex=None, ids_file=None):
+def extract_watermark(db_params, table_name, id_col, emb_col, vec_dim, embed_rate=None, encryption_key=None, nonce_hex=None, carrier_ids=None, ids_file=None):
     """
-    提取水印流程 - 支持AES-GCM解密得到明文消息
+    提取水印流程 - 支持AES-GCM解密得到明文消息和伪随机载体选择
     
     Args:
         db_params: 数据库连接参数
@@ -578,8 +667,9 @@ def extract_watermark(db_params, table_name, id_col, emb_col, vec_dim, embed_rat
         emb_col: 向量列名
         vec_dim: 向量维度
         embed_rate: 水印嵌入率（0-1之间的浮点数），如果提供则使用此参数重新计算
-        encryption_key: AES-GCM解密密钥
+        encryption_key: AES-GCM解密密钥，同时用作伪随机载体选择的种子
         nonce_hex: nonce的十六进制表示，必须提供用于解密
+        carrier_ids: 载体向量ID列表，如果提供则直接使用，否则重新计算
         ids_file: ID文件路径（已弃用，保留兼容性）
     """
     # 验证解密密钥和nonce
@@ -610,8 +700,8 @@ def extract_watermark(db_params, table_name, id_col, emb_col, vec_dim, embed_rat
         idx = build_hnsw_index(data.copy(), vec_dim)
         in_deg = compute_in_degrees(idx, ids)
 
-        # 按嵌入率选择低入度向量（与嵌入时使用相同策略）
-        low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate)
+        # 按嵌入率选择低入度向量（与嵌入时使用相同策略和密钥）
+        low_ids = select_low_degree_ids_by_rate(ids, in_deg, embed_rate, encryption_key)
 
         if len(low_ids) < BLOCK_COUNT:
             return {
@@ -725,12 +815,15 @@ def extract_watermark(db_params, table_name, id_col, emb_col, vec_dim, embed_rat
                 plaintext = decrypt_32bytes_to_message(encrypted_message, encryption_key, nonce_hex)
                 print(f"解密得到明文: {plaintext}")
                 
+                selection_method = "伪随机选择" if encryption_key else "确定性选择"
                 return {
                     "success": True,
                     "message": plaintext,
                     "blocks": BLOCK_COUNT,
                     "recovered": recovered_blocks,
                     "method": "recomputed_statistical_with_aes_gcm",
+                    "selection_method": selection_method,
+                    "pseudo_random_enabled": encryption_key is not None,
                     "total_low_degree_nodes": len(low_ids),
                     "valid_decodes": valid_decodes,
                     "total_decodes": total_decodes,

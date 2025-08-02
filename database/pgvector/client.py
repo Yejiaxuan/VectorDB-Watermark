@@ -227,7 +227,7 @@ class PGVectorManager:
             total_vecs: int = 1600
     ) -> Dict[str, Any]:
         """
-        在指定表的向量列中嵌入水印，使用AES-GCM加密明文消息
+        在指定表的向量列中嵌入水印，使用AES-GCM加密明文消息，支持伪随机载体选择
         
         Args:
             db_params: 数据库连接参数
@@ -236,7 +236,7 @@ class PGVectorManager:
             vector_column: 向量列名
             message: 明文消息（16字节）
             embed_rate: 水印嵌入率（0-1之间的浮点数），默认10%
-            encryption_key: AES-GCM加密密钥
+            encryption_key: AES-GCM加密密钥，同时用作伪随机载体选择的种子
             total_vecs: 使用的向量数量，默认1600（已弃用，保留兼容性）
             
         Returns:
@@ -285,7 +285,7 @@ class PGVectorManager:
             nonce: str = None
     ) -> Dict[str, Any]:
         """
-        从指定表的向量列中提取水印，使用AES-GCM解密得到明文消息
+        从指定表的向量列中提取水印，使用AES-GCM解密得到明文消息，支持伪随机载体选择
         
         Args:
             db_params: 数据库连接参数
@@ -293,7 +293,7 @@ class PGVectorManager:
             id_column: 主键列名
             vector_column: 向量列名
             embed_rate: 水印嵌入率（0-1之间的浮点数），默认10%
-            encryption_key: AES-GCM解密密钥
+            encryption_key: AES-GCM解密密钥，同时用作伪随机载体选择的种子
             nonce: nonce的十六进制表示，必须提供用于解密
             
         Returns:
