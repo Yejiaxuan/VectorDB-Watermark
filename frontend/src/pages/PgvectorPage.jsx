@@ -919,9 +919,14 @@ export default function PgvectorPage() {
                               }
                             </p>
                             {modelExists && modelPath && (
-                              <p className="text-xs text-gray-500 mt-1">
-                                模型路径: {modelPath}
-                              </p>
+                              <div className="mt-1">
+                                <p className="text-xs text-gray-500 flex items-start">
+                                  <span className="mr-1 flex-shrink-0">模型路径:</span>
+                                  <span className="overflow-hidden text-ellipsis" style={{ wordBreak: "break-all" }}>
+                                    {modelPath}
+                                  </span>
+                                </p>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -1302,7 +1307,7 @@ export default function PgvectorPage() {
                           )}
 
                           <div className="text-xs text-gray-500 bg-blue-50 p-2 rounded">
-                            💡 <strong>密钥说明：</strong>系统将使用AES-GCM算法对16字节明文进行加密，生成16字节密文和16字节验证标签，总共32字节用于水印嵌入
+                            💡 <strong>密钥说明：</strong>系统将使用AES-GCM算法对16字节明文进行加密，生成16字节密文和8字节验证标签，总共24字节用于水印嵌入
                           </div>
                         </div>
                       </div>
