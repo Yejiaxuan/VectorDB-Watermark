@@ -1422,8 +1422,36 @@ export default function MilvusPage() {
                                     return null;
                                   }} />
                                   <Legend />
-                                  <Scatter name="原始向量" data={visualizationData.original.map((point, i) => ({ x: point[0], y: point[1] }))} fill="#8884d8" shape="circle" />
-                                  <Scatter name="嵌入水印后" data={visualizationData.embedded.map((point, i) => ({ x: point[0], y: point[1] }))} fill="#82ca9d" shape="cross" />
+                                  <Scatter 
+                                    name="原始向量" 
+                                    data={visualizationData.original.map((point, i) => ({ x: point[0], y: point[1] }))} 
+                                    fill="#8884d8"
+                                    shape={(props) => {
+                                      const { cx, cy } = props;
+                                      const size = 4; // 控制形状大小
+                                      return (
+                                        <circle cx={cx} cy={cy} r={size} fill="#8884d8" stroke="#6b67af" strokeWidth={1} />
+                                      );
+                                    }}
+                                  />
+
+                                  <Scatter 
+                                    name="嵌入水印后" 
+                                    data={visualizationData.embedded.map((point, i) => ({ x: point[0], y: point[1] }))} 
+                                    fill="#82ca9d"
+                                    shape={(props) => {
+                                      const { cx, cy } = props;
+                                      const size = 5; // 控制形状大小
+                                      return (
+                                        <path 
+                                          d={`M${cx-size},${cy} L${cx+size},${cy} M${cx},${cy-size} L${cx},${cy+size}`} 
+                                          stroke="#4caf7d" 
+                                          strokeWidth={2} 
+                                          fill="none"
+                                        />
+                                      );
+                                    }}
+                                  />
                                 </ScatterChart>
                               </ResponsiveContainer>
                             </div>
