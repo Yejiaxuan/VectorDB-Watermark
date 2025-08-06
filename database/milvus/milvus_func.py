@@ -223,6 +223,7 @@ def compute_in_degrees(idx, ids: list):
 def select_low_degree_ids_by_rate(ids: list, in_degs: dict, embed_rate: float, encryption_key: str = None):
     """
     根据嵌入率选择入度最低的向量ID，支持伪随机选择
+    使用动态缓冲区策略，避免选择过高入度的向量
     
     Args:
         ids: 向量ID列表
@@ -242,13 +243,72 @@ def select_low_degree_ids_by_rate(ids: list, in_degs: dict, embed_rate: float, e
     # 按入度排序（入度低的优先），入度相同时按ID排序确保结果稳定
     sorted_pairs = sorted([(id_, in_degs.get(id_, 0)) for id_ in ids], key=lambda x: (x[1], x[0]))
 
+    # 动态计算候选池大小
+    candidate_pool_size = calculate_candidate_pool_size(len(ids), target_count)
+    
+    # 限制候选池不超过总向量数
+    candidate_pool_size = min(candidate_pool_size, len(ids))
+    
+    # 从候选池中选择
+    candidate_pairs = sorted_pairs[:candidate_pool_size]
+    
+    print(f"目标选择: {target_count}, 候选池大小: {candidate_pool_size}, 缓冲区: {candidate_pool_size - target_count}")
+
     if encryption_key is None:
         # 确定性选择：取前target_count个（仅在没有加密密钥时使用）
-        selected_pairs = sorted_pairs[:target_count]
-        return [pid for pid, _ in selected_pairs]
+        return [pid for pid, _ in candidate_pairs[:target_count]]
     else:
         # 伪随机选择：使用加密密钥作为伪随机种子（默认行为）
-        return pseudo_random_select_carriers(sorted_pairs, target_count, encryption_key)
+        return pseudo_random_select_carriers(candidate_pairs, target_count, encryption_key)
+
+
+def calculate_candidate_pool_size(total_vectors: int, target_count: int) -> int:
+    """
+    动态计算候选池大小，完全基于嵌入率自适应调整
+    
+    Args:
+        total_vectors: 总向量数
+        target_count: 目标选择数量
+        
+    Returns:
+        候选池大小
+    """
+    # 计算嵌入率
+    embed_ratio = target_count / total_vectors
+    
+    # 完全动态的缓冲区计算策略
+    if embed_ratio <= 0.1:
+        # 极低嵌入率：大缓冲区，给概率选择充分空间
+        buffer_multiplier = 0.5  # 50%缓冲区
+    elif embed_ratio <= 0.3:
+        # 低嵌入率：较大缓冲区
+        buffer_multiplier = 0.3  # 30%缓冲区
+    elif embed_ratio <= 0.5:
+        # 中低嵌入率：适中缓冲区
+        buffer_multiplier = 0.2  # 20%缓冲区
+    elif embed_ratio <= 0.7:
+        # 中高嵌入率：较小缓冲区
+        buffer_multiplier = 0.15  # 15%缓冲区
+    elif embed_ratio <= 0.85:
+        # 高嵌入率：小缓冲区
+        buffer_multiplier = 0.1   # 10%缓冲区
+    else:
+        # 极高嵌入率：最小缓冲区，严格控制入度
+        buffer_multiplier = 0.05  # 5%缓冲区
+    
+    # 计算缓冲区大小
+    buffer_size = int(target_count * buffer_multiplier)
+    
+    # 候选池大小 = 目标数量 + 缓冲区
+    candidate_pool_size = target_count + buffer_size
+    
+    # 确保不超过总向量数
+    candidate_pool_size = min(candidate_pool_size, total_vectors)
+    
+    # 确保至少包含目标数量
+    candidate_pool_size = max(candidate_pool_size, target_count)
+    
+    return candidate_pool_size
 
 
 def pseudo_random_select_carriers(sorted_pairs: list, target_count: int, encryption_key: str):
@@ -318,12 +378,15 @@ def pseudo_random_select_carriers(sorted_pairs: list, target_count: int, encrypt
         selected.extend(layer_selected)
         remaining_count -= len(layer_selected)
     
-    # 如果还没选够，从剩余向量中随机补充
+    # 如果还没选够，说明候选池中的向量概率选择结果不足
+    # 这种情况下，从已有候选池中按入度顺序补充（不再从高入度向量中选择）
     if remaining_count > 0:
-        remaining_vectors = [pid for pid, _ in sorted_pairs if pid not in selected]
-        if remaining_vectors:
-            additional = rng.sample(remaining_vectors, min(remaining_count, len(remaining_vectors)))
+        remaining_candidates = [pid for pid, _ in sorted_pairs if pid not in selected]
+        if remaining_candidates:
+            # 按入度顺序补充，优先选择最低入度的
+            additional = remaining_candidates[:remaining_count]
             selected.extend(additional)
+            print(f"概率选择不足，按入度顺序补充了 {len(additional)} 个向量")
     
     return selected[:target_count]
 
