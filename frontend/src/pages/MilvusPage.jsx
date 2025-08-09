@@ -548,8 +548,65 @@ export default function MilvusPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-50 to-white py-8">
-      <div className="container mx-auto max-w-md px-4">
+    <div className="fixed inset-0 bg-gradient-to-b from-purple-50 to-white">
+      <div className="flex h-full">
+        <aside className="fixed left-0 top-0 w-56 h-screen flex flex-col bg-gradient-to-b from-purple-600 to-pink-600 text-white p-4 shadow-lg">
+          <div className="mb-6 flex items-center space-x-2">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
+            </svg>
+            <span className="font-semibold tracking-wide">Milvus</span>
+          </div>
+          <nav className="space-y-2">
+            <button
+              onClick={() => setCurrentStep(1)}
+              className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                currentStep === 1 ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/80'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
+              </svg>
+              <span className="ml-2 text-sm">数据库连接</span>
+            </button>
+            <button
+              onClick={() => { setCurrentStep(2); setActiveTab('embed'); }}
+              className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                currentStep === 2 && activeTab === 'embed' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/80'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              <span className="ml-2 text-sm">嵌入水印</span>
+            </button>
+            <button
+              onClick={() => { setCurrentStep(2); setActiveTab('extract'); }}
+              className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                currentStep === 2 && activeTab === 'extract' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/80'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <span className="ml-2 text-sm">提取水印</span>
+            </button>
+            <button
+              onClick={() => { window.location.href = '/'; }}
+              className="w-full flex items-center px-3 py-2 rounded-lg transition-colors hover:bg-white/10 text-white/80"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="ml-2 text-sm">切换数据库</span>
+            </button>
+          </nav>
+          <div className="mt-auto text-[10px] text-white/70">v1.0</div>
+        </aside>
+
+        {/* 右侧主内容区 */}
+        <div className="flex-1 ml-56 h-full overflow-y-auto">
+      <div className="container mx-auto max-w-3xl px-4 py-8">
         {/* Toast 组件 */}
         {toasts.map(toast => (
           <Toast
@@ -563,7 +620,7 @@ export default function MilvusPage() {
         ))}
 
         {/* 步骤指示器 */}
-        <div className="mb-8 flex flex-col items-center">
+        <div className="mb-8 flex flex-col items-center hidden">
           <div className="flex items-center space-x-4 mb-4">
             {/* Step 1 */}
             <div className="flex flex-col items-center">
@@ -724,16 +781,6 @@ export default function MilvusPage() {
           {/* Step 2: 水印操作 */}
           {currentStep === 2 && (
             <div className="space-y-6 animate-slide-in-right">
-              {/* 返回按钮 */}
-              <button
-                onClick={goBack}
-                className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors duration-150 ease-in-out"
-              >
-                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                返回连接设置
-              </button>
 
               {/* 集合和字段选择 */}
               <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
@@ -1076,7 +1123,7 @@ export default function MilvusPage() {
                 {/* Tab 切换和操作 */}
                 <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
                   {/* Pills 切换 */}
-                  <div className="flex bg-gray-100 p-1 rounded-xl mb-6">
+                  <div className="flex bg-gray-100 p-1 rounded-xl mb-6 hidden">
                     <button
                       onClick={() => setActiveTab('embed')}
                       className={`flex-1 flex items-center justify-center py-2 px-4 text-sm font-medium rounded-lg transition-all duration-150 ease-in-out ${
@@ -1757,8 +1804,10 @@ export default function MilvusPage() {
                 </div>
                 </div>
               )}
+          </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }

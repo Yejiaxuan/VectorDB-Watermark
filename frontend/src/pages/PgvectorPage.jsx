@@ -835,16 +835,6 @@ export default function PgvectorPage() {
           {/* Step 2: 水印操作 */}
           {currentStep === 2 && (
             <div className="space-y-6 animate-slide-in-right">
-              {/* 返回按钮 */}
-              <button
-                onClick={goBack}
-                className="flex items-center text-sm text-gray-600 hover:text-gray-800 transition-colors duration-150 ease-in-out"
-              >
-                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                返回连接设置
-              </button>
 
               {/* 表和列选择 */}
               <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
