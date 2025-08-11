@@ -1,1894 +1,1410 @@
-import React, { useState, useEffect,useRef } from 'react';
-import Toast from '../components/Toast';
-import Combobox from '../components/Combobox';
-import {
-  connectDB,
-  fetchTables,
-  fetchColumns,
-  fetchPrimaryKeys,
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  connectDB, 
+  fetchTables, 
+  fetchColumns, 
+  fetchPrimaryKeys, 
+  getVectorDimension, 
+  checkModel, 
+  trainModel, 
+  getTrainingStatus,
   embedWatermark,
   extractWatermark,
-  getVectorDimension,
-  checkModel,
-  trainModel,
-  getTrainingStatus,
-  getVectorVisualization, 
-  getVectorVisualizationAsync, 
-  getVisualizationStatus 
+  getVectorVisualization,
+  getVectorVisualizationAsync,
+  getVisualizationStatus
 } from '../api';
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer} from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ScatterChart, Scatter } from 'recharts';
 
-export default function PgvectorPage() {
-  // —— 步骤控制 —__
-  const [currentStep, setCurrentStep] = useState(1);
-  const [stepCompleted, setStepCompleted] = useState(false);
-  
-  // —— 数据库连接状态 ——  
-  const [ip, setIp] = useState('localhost');
-  const [port, setPort] = useState(5432);
-  const [dbname, setDbname] = useState('test');
-  const [user, setUser] = useState('postgres');
-  const [password, setPassword] = useState('');
-  const [connected, setConnected] = useState(false);
-  const [statusMsg, setStatusMsg] = useState('未连接');
-  const [loadingConn, setLoadingConn] = useState(false);
+// 现代化Toast组件
+const ModernToast = ({ toast, onRemove }) => {
+  useEffect(() => {
+    const timer = setTimeout(() => onRemove(toast.id), 5000);
+    return () => clearTimeout(timer);
+  }, [toast.id, onRemove]);
 
-  // —— 表单验证 —__
-  const [formErrors, setFormErrors] = useState({});
-
-  // —— 表/列 列表 ——  
-  const [tables, setTables] = useState([]);
-  const [table, setTable] = useState('');
-  const [primaryKeys, setPrimaryKeys] = useState([]);
-  const [primaryKey, setPrimaryKey] = useState('');
-  const [columns, setColumns] = useState([]);
-  const [column, setColumn] = useState('');
-
-  // —— 向量维度和模型状态 —__
-  const [vectorDimension, setVectorDimension] = useState(null);
-  const [modelExists, setModelExists] = useState(false);
-  const [modelChecking, setModelChecking] = useState(false);
-  const [modelPath, setModelPath] = useState('');
-
-  // —— 训练相关状态 —__
-  const [trainingTaskId, setTrainingTaskId] = useState('');
-  const [trainingStatus, setTrainingStatus] = useState('');
-  const [trainingMessage, setTrainingMessage] = useState('');
-  const [isTraining, setIsTraining] = useState(false);
-  const [trainingProgress, setTrainingProgress] = useState(0);
-  const [currentEpoch, setCurrentEpoch] = useState(0);
-  const [totalEpochs, setTotalEpochs] = useState(100);
-  const [trainingMetrics, setTrainingMetrics] = useState({
-    train_loss: 0,
-    train_ber: 1,
-    val_loss: 0,
-    val_ber: 1
-  });
-  const [finalResults, setFinalResults] = useState(null);
-  const [trainingParams, setTrainingParams] = useState({
-    epochs: 100,
-    learning_rate: 0.0003,
-    batch_size: 8192,
-    val_ratio: 0.15
-  });
-  const [showTrainingParams, setShowTrainingParams] = useState(false);
-
-  // —— Tab 控制 —__
-  const [activeTab, setActiveTab] = useState('embed');
-
-  // —— 水印操作状态 ——  
-  const [message, setMessage] = useState('ABCDEFGHIJKLMNOP'); // 16字节明文
-  const [encryptionKey, setEncryptionKey] = useState(''); // 加密密钥
-  const [keyFile, setKeyFile] = useState(null); // 密钥文件
-  const [embedRate, setEmbedRate] = useState(0.1); // 默认10%嵌入率
-  const [lastEmbedRate, setLastEmbedRate] = useState(null); // 记录上次成功嵌入时使用的嵌入率
-  const [embedResult, setEmbedResult] = useState('');
-  const [extractResult, setExtractResult] = useState('');
-  const [isEmbedding, setIsEmbedding] = useState(false);
-  const [isExtracting, setIsExtracting] = useState(false);
-  const [nonce, setNonce] = useState(''); // 新增：nonce字段
-  const [lastNonce, setLastNonce] = useState(''); // 新增：记录上次嵌入返回的nonce
-
-  // 可视化相关状态
-  const [visualizationData, setVisualizationData] = useState(null);
-  const [isProcessingVisualization, setIsProcessingVisualization] = useState(false);
-  // const [visualizationMethod, setVisualizationMethod] = useState('tsne'); // 'tsne' 或 'pca'
-
-  const [visualizationProgress, setVisualizationProgress] = useState(0);
-  const [estimatedTime, setEstimatedTime] = useState(null);
-  const [visualizationPollingId, setVisualizationPollingId] = useState(null);
-  const [processingVectorsCount, setProcessingVectorsCount] = useState(0);
-
-  // 缩放相关状态
-  const [zoomDomain, setZoomDomain] = useState(null);
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const [initialDomain, setInitialDomain] = useState({ x: [-50, 50], y: [-50, 50] });
-
-  // 拖拽状态
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const chartRef = useRef(null);
-
-  // —— Toast 相关 —__
-  const [toasts, setToasts] = useState([]);
-
-  // 显示Toast提示
-  const showToast = (message, type = 'success') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type, isVisible: true }]);
+  const getToastStyles = () => {
+    switch (toast.type) {
+      case 'success':
+        return 'bg-green-500 border-green-400';
+      case 'error':
+        return 'bg-red-500 border-red-400';
+      case 'warning':
+        return 'bg-yellow-500 border-yellow-400';
+      default:
+        return 'bg-blue-500 border-blue-400';
+    }
   };
 
-  // 移除Toast
+  return (
+    <div className={`${getToastStyles()} text-white px-6 py-4 rounded-xl shadow-lg border-l-4 transform transition-all duration-300 hover:scale-105`}>
+      <div className="flex items-center justify-between">
+        <span className="font-medium">{toast.message}</span>
+        <button
+          onClick={() => onRemove(toast.id)}
+          className="ml-4 text-white hover:text-gray-200 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// 步骤指示器组件
+const StepIndicator = ({ currentStep, steps }) => {
+  return (
+    <div className="flex items-center justify-between mb-8">
+      {steps.map((step, index) => (
+        <div key={index} className="flex items-center">
+          <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-300 ${
+            index + 1 <= currentStep 
+              ? 'bg-gradient-to-r from-teal-500 to-cyan-500 border-teal-500 text-white' 
+              : 'border-gray-300 text-gray-400'
+          }`}>
+            {index + 1 <= currentStep ? (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <span className="text-sm font-semibold">{index + 1}</span>
+            )}
+          </div>
+          <span className={`ml-3 text-sm font-medium ${
+            index + 1 <= currentStep ? 'text-teal-600' : 'text-gray-400'
+          }`}>
+            {step}
+          </span>
+          {index < steps.length - 1 && (
+            <div className={`mx-4 h-0.5 w-16 ${
+              index + 1 < currentStep ? 'bg-teal-500' : 'bg-gray-300'
+            }`} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// 现代化输入组件
+const ModernInput = ({ label, type = 'text', value, onChange, placeholder, error, icon, ...props }) => {
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-medium text-gray-700">{label}</label>
+      <div className="relative">
+        {icon && (
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <div className="text-gray-400">{icon}</div>
+          </div>
+        )}
+        <input
+          type={type}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          className={`w-full ${icon ? 'pl-10' : 'pl-4'} pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 ${
+            error ? 'border-red-500 ring-2 ring-red-200' : ''
+          }`}
+          {...props}
+        />
+      </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </div>
+  );
+};
+
+// 现代化按钮组件
+const ModernButton = ({ children, variant = 'primary', size = 'md', loading = false, disabled = false, onClick, className = '', ...props }) => {
+  const baseClasses = 'inline-flex items-center justify-center font-medium rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2';
+  
+  const variants = {
+    primary: 'bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white focus:ring-teal-500',
+    secondary: 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-500',
+    danger: 'bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white focus:ring-red-500',
+    success: 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white focus:ring-green-500'
+  };
+  
+  const sizes = {
+    sm: 'px-3 py-2 text-sm',
+    md: 'px-6 py-3 text-base',
+    lg: 'px-8 py-4 text-lg'
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || loading}
+      className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${
+        disabled || loading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 hover:shadow-lg'
+      } ${className}`}
+      {...props}
+    >
+      {loading && (
+        <svg className="animate-spin -ml-1 mr-3 h-5 w-5" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      )}
+      {children}
+    </button>
+  );
+};
+
+// 现代化卡片组件
+const ModernCard = ({ children, className = '', title, subtitle, ...props }) => {
+  return (
+    <div className={`bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden ${className}`} {...props}>
+      {(title || subtitle) && (
+        <div className="px-6 py-4 border-b border-gray-100">
+          {title && <h3 className="text-lg font-semibold text-gray-900">{title}</h3>}
+          {subtitle && <p className="text-sm text-gray-600 mt-1">{subtitle}</p>}
+        </div>
+      )}
+      <div className="p-6">
+        {children}
+      </div>
+    </div>
+  );
+};
+
+// 侧边栏导航组件
+const Sidebar = ({ activeSection, onSectionChange, connected, modelExists }) => {
+  const sections = [
+    { id: 'connection', name: '数据库连接', icon: '🔗', enabled: true },
+    { id: 'model', name: '模型管理', icon: '🤖', enabled: connected },
+    { id: 'watermark', name: '水印操作', icon: '💧', enabled: connected && modelExists },
+    { id: 'visualization', name: '数据可视化', icon: '📊', enabled: connected }
+  ];
+
+  return (
+    <div className="w-64 bg-white border-r border-gray-200 h-screen sticky top-0">
+      <div className="p-6">
+        <div className="flex items-center space-x-3 mb-8">
+          <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-cyan-500 rounded-xl flex items-center justify-center">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">PGVector</h2>
+            <p className="text-xs text-gray-500">向量数据库</p>
+          </div>
+        </div>
+
+        <nav className="space-y-2">
+          {sections.map((section) => (
+            <button
+              key={section.id}
+              onClick={() => section.enabled && onSectionChange(section.id)}
+              disabled={!section.enabled}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-left transition-all duration-200 ${
+                activeSection === section.id
+                  ? 'bg-gradient-to-r from-teal-50 to-cyan-50 text-teal-700 border border-teal-200'
+                  : section.enabled
+                  ? 'text-gray-700 hover:bg-gray-50'
+                  : 'text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              <span className="text-lg">{section.icon}</span>
+              <span className="font-medium">{section.name}</span>
+              {!section.enabled && (
+                <svg className="w-4 h-4 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </nav>
+      </div>
+    </div>
+  );
+};
+
+export default function PgvectorPage() {
+  // 状态管理
+  const [activeSection, setActiveSection] = useState('connection');
+  const [connected, setConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  
+  // 数据库连接参数
+  const [connectionData, setConnectionData] = useState({
+    ip: '',
+    port: '',
+    dbName: '',
+    user: '',
+    password: ''
+  });
+  const [errors, setErrors] = useState({});
+  
+  // 表和列选择
+  const [tables, setTables] = useState([]);
+  const [selectedTable, setSelectedTable] = useState('');
+  const [columns, setColumns] = useState([]);
+  const [selectedColumn, setSelectedColumn] = useState('');
+  const [primaryKeys, setPrimaryKeys] = useState([]);
+  const [selectedPrimaryKey, setSelectedPrimaryKey] = useState('');
+  
+  // 模型状态
+  const [vectorDimension, setVectorDimension] = useState(null);
+  const [modelExists, setModelExists] = useState(false);
+  const [isTraining, setIsTraining] = useState(false);
+  const [trainingProgress, setTrainingProgress] = useState(0);
+  const [trainingResult, setTrainingResult] = useState(null);
+  
+  // 训练参数
+  const [trainingParams, setTrainingParams] = useState({
+    epochs: 50,
+    learningRate: 0.001,
+    batchSize: 32,
+    valRatio: 0.2
+  });
+  
+  // 水印嵌入操作
+  const [watermarkData, setWatermarkData] = useState({
+    message: '',
+    encryptionKey: '',
+    embedRate: 0.1,
+    nonce: ''
+  });
+  const [keyFile, setKeyFile] = useState(null);
+  
+  // 水印提取操作（分离的状态）
+  const [extractData, setExtractData] = useState({
+    encryptionKey: '',
+    embedRate: 0.1,
+    nonce: ''
+  });
+  const [extractKeyFile, setExtractKeyFile] = useState(null);
+  const [nonceFile, setNonceFile] = useState(null);
+  const [extractNonceFile, setExtractNonceFile] = useState(null);
+  const [lastNonce, setLastNonce] = useState('');
+  const [lastEmbedRate, setLastEmbedRate] = useState(''); // 记录上次成功嵌入时使用的嵌入率
+  const [isEmbedding, setIsEmbedding] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [embedResult, setEmbedResult] = useState('');
+  const [extractResult, setExtractResult] = useState('');
+  
+  // 可视化
+  const [visualizationData, setVisualizationData] = useState(null);
+  const [isVisualizing, setIsVisualizing] = useState(false);
+  
+  // Toast通知
+  const [toasts, setToasts] = useState([]);
+
+  // Toast管理
+  const showToast = (message, type = 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+  };
+
   const removeToast = (id) => {
     setToasts(prev => prev.filter(toast => toast.id !== id));
   };
 
-  // 页面仅保留内部滚动：禁用外层滚动条
-  useEffect(() => {
-    const prevHtmlOverflow = document.documentElement.style.overflow;
-    const prevBodyOverflow = document.body.style.overflow;
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.documentElement.style.overflow = prevHtmlOverflow;
-      document.body.style.overflow = prevBodyOverflow;
-    };
-  }, []);
-
-  // 表单验证
-  const validateForm = () => {
-    const errors = {};
-    if (!ip.trim()) errors.ip = '请输入主机地址';
-    if (!port || port < 1 || port > 65535) errors.port = '请输入有效端口号';
-    if (!dbname.trim()) errors.dbname = '请输入数据库名称';
-    if (!user.trim()) errors.user = '请输入用户名';
-    
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  // 连接数据库
+  // 数据库连接
   const handleConnect = async () => {
-    if (!validateForm()) return;
+    const newErrors = {};
+    Object.keys(connectionData).forEach(key => {
+      if (!connectionData[key].trim()) {
+        newErrors[key] = '此字段不能为空';
+      }
+    });
     
-    setLoadingConn(true);
-    setStatusMsg('连接中…');
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
     try {
-      const { success, message: msg } = await connectDB({ host: ip, port, dbname, user, password });
-      setConnected(success);
-      setStatusMsg(success ? msg : '连接失败');
-      if (success) {
-        setStepCompleted(true);
+      setIsConnecting(true);
+      const dbParams = {
+        host: connectionData.ip,
+        port: connectionData.port,
+        dbname: connectionData.dbName,
+        user: connectionData.user,
+        password: connectionData.password
+      };
+      
+      const response = await connectDB(dbParams);
+      
+      if (response.success) {
+        setConnected(true);
         showToast('数据库连接成功！', 'success');
-        // 连接成功后自动进入下一步
-        setTimeout(() => setCurrentStep(2), 800);
-      }
-    } catch (err) {
-      setConnected(false);
-      setStatusMsg(`错误：${err.message}`);
-      showToast(`连接失败：${err.message}`, 'error');
-    } finally {
-      setLoadingConn(false);
-    }
-  };
-
-  // 检查向量维度和模型
-  const checkVectorDimensionAndModel = async () => {
-    if (!connected || !table || !column) return;
-    
-    setModelChecking(true);
-    try {
-      // 获取向量维度
-      const dimResult = await getVectorDimension({ host: ip, port, dbname, user, password }, table, column);
-      const dimension = dimResult.dimension;
-      setVectorDimension(dimension);
-      
-      // 检查模型是否存在
-      const modelResult = await checkModel(dimension);
-      setModelExists(modelResult.exists);
-      setModelPath(modelResult.model_path);
-      
-      if (modelResult.exists) {
-        showToast(`检测到 ${dimension} 维向量，对应模型已存在`, 'success');
+        
+        // 获取表列表
+        const tables = await fetchTables(dbParams);
+        setTables(tables);
+        
+        setActiveSection('model');
       } else {
-        showToast(`检测到 ${dimension} 维向量，需要训练对应模型`, 'warning');
-      }
-    } catch (err) {
-      showToast(`检查失败：${err.message}`, 'error');
-      setVectorDimension(null);
-      setModelExists(false);
-    } finally {
-      setModelChecking(false);
-    }
-  };
-
-  // 启动训练
-  const handleTrainModel = async () => {
-    if (!connected || !table || !column || !vectorDimension) return;
-    
-    try {
-      const result = await trainModel(
-        { host: ip, port, dbname, user, password }, 
-        table, 
-        column, 
-        vectorDimension,
-        trainingParams
-      );
-      setTrainingTaskId(result.task_id);
-      setIsTraining(true);
-      setTrainingStatus('starting');
-      setTrainingMessage(result.message);
-      setTrainingProgress(0);
-      setCurrentEpoch(0);
-      setTotalEpochs(trainingParams.epochs);
-      setFinalResults(null);
-      showToast('训练任务已启动', 'success');
-      
-      // 开始轮询训练状态
-      pollTrainingStatus(result.task_id);
-    } catch (err) {
-      showToast(`启动训练失败：${err.message}`, 'error');
-    }
-  };
-
-  // 轮询训练状态
-  const pollTrainingStatus = async (taskId) => {
-    const interval = setInterval(async () => {
-      try {
-        const status = await getTrainingStatus(taskId);
-        setTrainingStatus(status.status);
-        setTrainingMessage(status.message || '');
-        setTrainingProgress(status.progress || 0);
-        setCurrentEpoch(status.current_epoch || 0);
-        setTotalEpochs(status.total_epochs || trainingParams.epochs);
-        
-        if (status.metrics) {
-          setTrainingMetrics(status.metrics);
-        }
-        
-        if (status.status === 'completed') {
-          setIsTraining(false);
-          setModelExists(true);
-          setFinalResults({
-            best_ber: status.best_ber,
-            performance_level: status.performance_level,
-            suggestions: status.suggestions || [],
-            final_metrics: status.final_metrics,
-            train_params: status.train_params
-          });
-          
-          // 根据性能水平显示不同的消息
-          const performanceMessages = {
-            excellent: '🎉 训练效果极佳！',
-            good: '👍 训练效果良好！', 
-            poor: '⚠️ 训练效果不佳，建议调整参数重新训练'
-          };
-          
-          showToast(
-            `${performanceMessages[status.performance_level]} ${status.message}`, 
-            status.performance_level === 'poor' ? 'warning' : 'success'
-          );
-          clearInterval(interval);
-        } else if (status.status === 'failed') {
-          setIsTraining(false);
-          showToast(`训练失败：${status.error}`, 'error');
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error('获取训练状态失败:', err);
-        clearInterval(interval);
-      }
-    }, 2000); // 每2秒轮询一次
-  };
-
-
-  // 计算初始域范围
-  const calculateInitialDomain = (data) => {
-    if (!data || !data.original || !data.embedded) return { x: [-50, 50], y: [-50, 50] };
-    
-    // 合并所有点
-    const allPoints = [
-      ...data.original.map(point => ({ x: point[0], y: point[1] })),
-      ...data.embedded.map(point => ({ x: point[0], y: point[1] }))
-    ];
-    
-    // 计算最小和最大值并添加一些边距
-    const xValues = allPoints.map(p => p.x);
-    const yValues = allPoints.map(p => p.y);
-    
-    const minX = Math.floor(Math.min(...xValues));
-    const maxX = Math.ceil(Math.max(...xValues));
-    const minY = Math.floor(Math.min(...yValues));
-    const maxY = Math.ceil(Math.max(...yValues));
-    
-    // 添加边距
-    const padding = 5;
-    return {
-      x: [minX - padding, maxX + padding],
-      y: [minY - padding, maxY + padding]
-    };
-  };
-
-  // 重置缩放
-  const resetZoom = () => {
-    setZoomDomain(null);
-    setZoomLevel(1);
-  };
-
-  // 放大
-  const zoomIn = () => {
-    setZoomLevel(prev => {
-      const newLevel = prev + 0.5;
-      const currentDomain = zoomDomain || initialDomain;
-      const centerX = (currentDomain.x[0] + currentDomain.x[1]) / 2;
-      const centerY = (currentDomain.y[0] + currentDomain.y[1]) / 2;
-      const rangeX = currentDomain.x[1] - currentDomain.x[0];
-      const rangeY = currentDomain.y[1] - currentDomain.y[0];
-      
-      const newRangeX = rangeX / (newLevel / prev);
-      const newRangeY = rangeY / (newLevel / prev);
-      
-      setZoomDomain({
-        x: [centerX - newRangeX / 2, centerX + newRangeX / 2],
-        y: [centerY - newRangeY / 2, centerY + newRangeY / 2]
-      });
-      
-      return newLevel;
-    });
-  };
-
-  // 缩小
-  const zoomOut = () => {
-    setZoomLevel(prev => {
-      if (prev <= 1) {
-        resetZoom();
-        return 1;
-      }
-      
-      const newLevel = prev - 0.5;
-      const currentDomain = zoomDomain || initialDomain;
-      const centerX = (currentDomain.x[0] + currentDomain.x[1]) / 2;
-      const centerY = (currentDomain.y[0] + currentDomain.y[1]) / 2;
-      const rangeX = currentDomain.x[1] - currentDomain.x[0];
-      const rangeY = currentDomain.y[1] - currentDomain.y[0];
-      
-      const newRangeX = rangeX / (newLevel / prev);
-      const newRangeY = rangeY / (newLevel / prev);
-      
-      setZoomDomain({
-        x: [centerX - newRangeX / 2, centerX + newRangeX / 2],
-        y: [centerY - newRangeY / 2, centerY + newRangeY / 2]
-      });
-      
-      return newLevel;
-    });
-  };
-
-  // 开始拖拽
-  const handleChartMouseDown = (e) => {
-    if (zoomLevel <= 1) return; // 只在放大状态下允许拖拽
-    
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    
-    // 改变鼠标样式
-    document.body.style.cursor = 'grabbing';
-    e.preventDefault(); // 防止文本选择
-  };
-
-  // 处理拖拽过程
-  const handleMouseMove = (e) => {
-    if (!isDragging || !zoomDomain) return;
-    
-    // 计算鼠标移动的距离
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
-    
-    const chartRect = chartRef.current?.getBoundingClientRect();
-    if (!chartRect) return;
-    
-    // 计算坐标系中的移动量
-    const domainWidth = zoomDomain.x[1] - zoomDomain.x[0];
-    const domainHeight = zoomDomain.y[1] - zoomDomain.y[0];
-    
-    const moveX = (dx / chartRect.width) * domainWidth;
-    const moveY = (dy / chartRect.height) * domainHeight;
-    
-    // 更新坐标范围，注意方向需要反转
-    setZoomDomain({
-      x: [zoomDomain.x[0] - moveX, zoomDomain.x[1] - moveX], // 水平方向保持不变
-      y: [zoomDomain.y[0] + moveY, zoomDomain.y[1] + moveY], // 改为加号，反转y方向
-    });
-    
-    setDragStart({ x: e.clientX, y: e.clientY });
-  };
-
-  // 结束拖拽
-  const handleMouseUp = () => {
-    if (isDragging) {
-      setIsDragging(false);
-      document.body.style.cursor = '';
-    }
-  };
-
-  // 添加拖拽事件监听
-  useEffect(() => {
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    }
-    
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, zoomDomain]);
-
-  // 当可视化数据变化时，计算初始域
-  useEffect(() => {
-    if (visualizationData) {
-      setInitialDomain(calculateInitialDomain(visualizationData));
-      resetZoom();
-    }
-  }, [visualizationData]);
-
-  // 清理轮询
-  useEffect(() => {
-    return () => {
-      if (visualizationPollingId) {
-        clearInterval(visualizationPollingId);
-      }
-    };
-  }, [visualizationPollingId]);
-
-  // 格式化剩余时间
-  const formatTimeRemaining = (totalSeconds, progress) => {
-    if (!totalSeconds || progress >= 100) return "即将完成";
-    const remaining = totalSeconds * (100 - progress) / 100;
-    if (remaining < 60) return `约 ${Math.ceil(remaining)} 秒`;
-    return `约 ${Math.ceil(remaining / 60)} 分钟`;
-  };
-
-  // 拉表列表
-  useEffect(() => {
-    if (connected) {
-      fetchTables({ host: ip, port, dbname, user, password })
-        .then(ts => {
-          setTables(ts);
-          if (ts.length) setTable(ts[0]);
-        })
-        .catch(err => console.error('拉表失败', err));
-    } else {
-      setTables([]); setTable(''); setPrimaryKeys([]); setPrimaryKey(''); setColumns([]); setColumn('');
-      setVectorDimension(null); setModelExists(false);
-    }
-  }, [connected]);
-
-  // 当表格或列变更时，重置水印状态
-  useEffect(() => {
-    setEmbedResult('');
-    setExtractResult('');
-    setVectorDimension(null);
-    setModelExists(false);
-  }, [table, column]);
-
-  // 当选择表后获取主键列
-  useEffect(() => {
-    if (connected && table) {
-      fetchPrimaryKeys({ host: ip, port, dbname, user, password }, table)
-        .then(keys => {
-          setPrimaryKeys(keys);
-          if (keys.length) setPrimaryKey(keys[0]);
-          else setPrimaryKey('');
-        })
-        .catch(err => console.error('获取主键失败', err));
-    } else {
-      setPrimaryKeys([]); 
-      setPrimaryKey('');
-    }
-  }, [connected, table]);
-
-  // 拉列列表
-  useEffect(() => {
-    if (connected && table) {
-      fetchColumns({ host: ip, port, dbname, user, password }, table)
-        .then(cs => {
-          setColumns(cs);
-          if (cs.length) setColumn(cs[0]);
-        })
-        .catch(err => console.error('拉列失败', err));
-    } else {
-      setColumns([]); setColumn('');
-    }
-  }, [connected, table]);
-
-  // 当选择列后自动检查维度和模型
-  useEffect(() => {
-    if (column) {
-      checkVectorDimensionAndModel();
-    }
-  }, [column]);
-
-  // 嵌入水印
-  const handleEmbed = async () => {
-    if (!connected || !message || !table || !column || !primaryKey || message.length !== 16 || !encryptionKey) return;
-    
-    setIsEmbedding(true);
-    setEmbedResult('');
-    setExtractResult('');
-    
-    try {
-      const dbParams = { host: ip, port, dbname, user, password };
-      const result = await embedWatermark(dbParams, table, primaryKey, column, message, embedRate, encryptionKey);
-      
-      if (result.success) {
-        setLastEmbedRate(embedRate);
-        
-        // 直接使用后端返回的可视化数据
-        if (result.visualization_data) {
-          console.log("收到的可视化数据:", result.visualization_data);
-          
-          // 直接使用已处理好的可视化数据
-          setVisualizationData(result.visualization_data);
-          setInitialDomain(calculateInitialDomain(result.visualization_data));
-          setZoomDomain(null);
-          setZoomLevel(1);
-          setIsProcessingVisualization(false);
-        }
-
-        // 保存返回的nonce
-        if (result.nonce) {
-          setLastNonce(result.nonce);
-        }
-        
-        // 设置结果消息
-        setEmbedResult(`${result.message}\n\n💡 提示：提取水印时请使用相同的嵌入率 ${(embedRate * 100).toFixed(1)}% 和相同的解密密钥以确保正确提取。\n\n⚠️ 重要：请保存以下nonce值，提取水印时需要：\n${result.nonce}`);
-        showToast(`水印嵌入成功！使用了 ${(embedRate * 100).toFixed(1)}% 的嵌入率`, 'success');
-      } else {
-        setEmbedResult(`错误: ${result.error || "未知错误"}`);
-        showToast(`嵌入失败：${result.error || "未知错误"}`, 'error');
+        showToast(`连接失败: ${response.message}`, 'error');
       }
     } catch (error) {
-      setEmbedResult(`错误: ${error.message}`);
-      showToast(`嵌入失败：${error.message}`, 'error');
+      showToast(`连接错误: ${error.message}`, 'error');
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  // 获取列信息
+  const handleTableSelect = async (tableName) => {
+    setSelectedTable(tableName);
+    try {
+      const dbParams = {
+        host: connectionData.ip,
+        port: connectionData.port,
+        dbname: connectionData.dbName,
+        user: connectionData.user,
+        password: connectionData.password
+      };
+      
+      const [columns, primaryKeys] = await Promise.all([
+        fetchColumns(dbParams, tableName),
+        fetchPrimaryKeys(dbParams, tableName)
+      ]);
+      
+      setColumns(columns);
+      setPrimaryKeys(primaryKeys);
+    } catch (error) {
+      showToast(`获取表信息失败: ${error.message}`, 'error');
+    }
+  };
+
+  // 检查模型
+  const checkModelStatus = async () => {
+    if (!selectedTable || !selectedColumn) {
+      // 如果没有选择表和列，重置模型状态
+      setVectorDimension(null);
+      setModelExists(false);
+      return;
+    }
+    
+    try {
+      const dbParams = {
+        host: connectionData.ip,
+        port: connectionData.port,
+        dbname: connectionData.dbName,
+        user: connectionData.user,
+        password: connectionData.password
+      };
+      
+      const dimResponse = await getVectorDimension(dbParams, selectedTable, selectedColumn);
+      if (dimResponse.dimension) {
+        setVectorDimension(dimResponse.dimension);
+        
+        const modelResponse = await checkModel(dimResponse.dimension);
+        setModelExists(modelResponse.exists);
+        
+        // 只在模型状态发生变化时显示提示
+        // 不显示toast，避免频繁弹出提示
+      } else {
+        // 如果无法获取维度，重置状态
+        setVectorDimension(null);
+        setModelExists(false);
+      }
+    } catch (error) {
+      console.error('检查模型失败:', error);
+      setVectorDimension(null);
+      setModelExists(false);
+    }
+  };
+
+  // 训练模型
+  const handleTrainModel = async () => {
+    if (!selectedTable || !selectedColumn || !vectorDimension) {
+      showToast('请先选择表和列，并确保获取到向量维度', 'error');
+      return;
+    }
+    
+    try {
+      setIsTraining(true);
+      setTrainingProgress(0);
+      
+      const dbParams = {
+        host: connectionData.ip,
+        port: connectionData.port,
+        dbname: connectionData.dbName,
+        user: connectionData.user,
+        password: connectionData.password
+      };
+      
+      const response = await trainModel(dbParams, selectedTable, selectedColumn, vectorDimension, trainingParams);
+      
+      if (response.task_id) {
+        showToast('模型训练已开始', 'success');
+        // 这里可以添加训练进度监控
+        setTimeout(async () => {
+          setIsTraining(false);
+          // 训练完成后重新检查模型状态
+          await checkModelStatus();
+          showToast('模型训练完成！', 'success');
+        }, 5000);
+      } else {
+        setIsTraining(false);
+        showToast(`训练失败: ${response.message}`, 'error');
+      }
+    } catch (error) {
+      setIsTraining(false);
+      showToast(`训练错误: ${error.message}`, 'error');
+    }
+  };
+
+  // 嵌入水印
+  const handleEmbedWatermark = async () => {
+    if (!watermarkData.message || !watermarkData.encryptionKey || !selectedPrimaryKey) {
+      showToast('请填写水印信息、加密密钥，并选择主键列', 'error');
+      return;
+    }
+    
+    try {
+      setIsEmbedding(true);
+      const dbParams = {
+        host: connectionData.ip,
+        port: connectionData.port,
+        dbname: connectionData.dbName,
+        user: connectionData.user,
+        password: connectionData.password
+      };
+      
+      const response = await embedWatermark(
+        dbParams,
+        selectedTable,
+        selectedPrimaryKey,
+        selectedColumn,
+        watermarkData.message,
+        watermarkData.embedRate,
+        watermarkData.encryptionKey
+      );
+      
+      if (response.success) {
+        setLastEmbedRate(watermarkData.embedRate);
+        
+        // 保存返回的nonce
+        if (response.nonce) {
+          setLastNonce(response.nonce);
+        }
+        
+        setEmbedResult(`${response.message}\n\n💡 提示：提取水印时请使用相同的嵌入率 ${(watermarkData.embedRate * 100).toFixed(1)}% 和相同的解密密钥以确保正确提取。\n\n⚠️ 重要：请保存以下nonce值，提取水印时需要：\n${response.nonce}`);
+        showToast(`水印嵌入成功！使用了 ${(watermarkData.embedRate * 100).toFixed(1)}% 的嵌入率`, 'success');
+      } else {
+        setEmbedResult(`错误: ${response.error || "未知错误"}`);
+        showToast(`嵌入失败: ${response.error || response.message || "未知错误"}`, 'error');
+      }
+    } catch (error) {
+      showToast(`嵌入错误: ${error.message}`, 'error');
     } finally {
       setIsEmbedding(false);
     }
   };
 
   // 提取水印
-  const handleExtract = async () => {
-    if (!connected || !table || !column || !primaryKey || !encryptionKey || !nonce) return;
+  const handleExtractWatermark = async () => {
+    if (!extractData.encryptionKey || !extractData.nonce || !selectedPrimaryKey) {
+      showToast('请填写加密密钥、nonce值，并选择主键列', 'error');
+      return;
+    }
     
-    setIsExtracting(true);
-    setExtractResult('');
+    // 检查嵌入率是否与上次嵌入时一致
+    if (lastEmbedRate && extractData.embedRate !== lastEmbedRate) {
+      const confirmExtract = window.confirm(
+        `检测到当前嵌入率 (${extractData.embedRate}) 与上次嵌入时的嵌入率 (${lastEmbedRate}) 不一致。\n\n为了正确提取水印，建议使用相同的嵌入率。\n\n是否继续提取？`
+      );
+      if (!confirmExtract) {
+        return;
+      }
+    }
     
     try {
-      const dbParams = { host: ip, port, dbname, user, password };
-      const result = await extractWatermark(dbParams, table, primaryKey, column, embedRate, encryptionKey, nonce);
+      setIsExtracting(true);
+      const dbParams = {
+        host: connectionData.ip,
+        port: connectionData.port,
+        dbname: connectionData.dbName,
+        user: connectionData.user,
+        password: connectionData.password
+      };
       
-      if (result.success) {
-        const stats = result.stats ? ` (有效解码: ${result.valid_decodes}/${result.total_decodes})` : '';
-        setExtractResult(`提取成功：${result.message} (恢复 ${result.recovered}/${result.blocks} 个区块)${stats}`);
+      const response = await extractWatermark(
+        dbParams,
+        selectedTable,
+        selectedPrimaryKey,
+        selectedColumn,
+        extractData.embedRate,
+        extractData.encryptionKey,
+        extractData.nonce
+      );
+      
+      if (response.success) {
+        setExtractResult(response.message);
         showToast('水印提取成功！', 'success');
       } else {
-        setExtractResult(`提取失败：${result.error}`);
-        showToast(`提取失败：${result.error}`, 'error');
+        showToast(`提取失败: ${response.message}`, 'error');
       }
     } catch (error) {
-      setExtractResult(`错误: ${error.message}`);
-      showToast(`提取失败：${error.message}`, 'error');
+      showToast(`提取错误: ${error.message}`, 'error');
     } finally {
       setIsExtracting(false);
     }
   };
-  
-  // 返回上一步
-  const goBack = () => {
-    setCurrentStep(1);
-    setConnected(false);
-    setStatusMsg('未连接');
-    setStepCompleted(false);
+
+  // 生成可视化
+  const handleVisualize = async () => {
+    if (!selectedTable || !selectedColumn) {
+      showToast('请先选择表和列', 'error');
+      return;
+    }
+    
+    try {
+      setIsVisualizing(true);
+      // 暂时生成模拟数据用于演示
+      const mockData = Array.from({ length: 100 }, (_, i) => ({
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        type: i % 2 === 0 ? '原始向量' : '水印向量'
+      }));
+      
+      setVisualizationData(mockData);
+      showToast('可视化生成成功！（演示数据）', 'success');
+    } catch (error) {
+      showToast(`可视化错误: ${error.message}`, 'error');
+    } finally {
+      setIsVisualizing(false);
+    }
   };
 
-  return (
-    <div className="fixed inset-0 bg-gradient-to-b from-gray-50 to-white">
-      <div className="flex h-full">
-        <aside className="fixed left-0 top-0 w-56 h-screen flex flex-col bg-gradient-to-b from-teal-600 to-emerald-600 text-white p-4 shadow-lg">
-          <div className="mb-6 flex items-center space-x-2">
-            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
-            </svg>
-            <span className="font-semibold tracking-wide">PGVector</span>
-          </div>
-          <nav className="space-y-2">
-            <button
-              onClick={() => setCurrentStep(1)}
-              className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
-                currentStep === 1 ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/80'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
-              </svg>
-              <span className="ml-2 text-sm">数据库连接</span>
-            </button>
-            <button
-              onClick={() => { setCurrentStep(2); setActiveTab('embed'); }}
-              className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
-                currentStep === 2 && activeTab === 'embed' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/80'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              <span className="ml-2 text-sm">嵌入水印</span>
-            </button>
-            <button
-              onClick={() => { setCurrentStep(2); setActiveTab('extract'); }}
-              className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
-                currentStep === 2 && activeTab === 'extract' ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/80'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <span className="ml-2 text-sm">提取水印</span>
-            </button>
-            <button
-              onClick={() => { window.location.href = '/'; }}
-              className="w-full flex items-center px-3 py-2 rounded-lg transition-colors hover:bg-white/10 text-white/80"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              <span className="ml-2 text-sm">切换数据库</span>
-            </button>
-          </nav>
-          <div className="mt-auto text-[10px] text-white/70">v1.0</div>
-        </aside>
-        <div className="flex-1 ml-56 h-full overflow-y-auto">
-          <div className="container mx-auto max-w-3xl px-4 py-8">
-        {/* Toast 组件 */}
-        {toasts.map(toast => (
-          <Toast
-            key={toast.id}
-            message={toast.message}
-            type={toast.type}
-            isVisible={toast.isVisible}
-            onClose={() => removeToast(toast.id)}
-            position="bottom"
+  // 监听表和列的变化
+  useEffect(() => {
+    if (selectedTable && selectedColumn) {
+      // 使用setTimeout进行简单的防抖，避免快速切换时的重复调用
+      const timer = setTimeout(() => {
+        checkModelStatus();
+      }, 300);
+      
+      return () => clearTimeout(timer);
+    } else {
+      // 当表或列未选择时，重置相关状态
+      setVectorDimension(null);
+      setModelExists(false);
+    }
+  }, [selectedTable, selectedColumn]);
+
+  // 监听列选择变化，重置主键选择
+  useEffect(() => {
+    if (!selectedColumn) {
+      setSelectedPrimaryKey('');
+    }
+  }, [selectedColumn]);
+
+  // 渲染连接部分
+  const renderConnectionSection = () => (
+    <ModernCard>
+      <div className="text-center mb-6">
+        <div className="w-16 h-16 bg-gradient-to-br from-teal-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">连接PGVector数据库</h2>
+        <p className="text-gray-600">基于PostgreSQL向量扩展的水印嵌入系统</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <ModernInput
+          label="IP地址"
+          value={connectionData.ip}
+          onChange={(e) => setConnectionData(prev => ({ ...prev, ip: e.target.value }))}
+          placeholder="localhost"
+          error={errors.ip}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
+          </svg>}
+        />
+        <ModernInput
+          label="端口"
+          value={connectionData.port}
+          onChange={(e) => setConnectionData(prev => ({ ...prev, port: e.target.value }))}
+          placeholder="5432"
+          error={errors.port}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+          </svg>}
+        />
+        <ModernInput
+          label="数据库名"
+          value={connectionData.dbName}
+          onChange={(e) => setConnectionData(prev => ({ ...prev, dbName: e.target.value }))}
+          placeholder="database_name"
+          error={errors.dbName}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
+          </svg>}
+        />
+        <ModernInput
+          label="用户名"
+          value={connectionData.user}
+          onChange={(e) => setConnectionData(prev => ({ ...prev, user: e.target.value }))}
+          placeholder="username"
+          error={errors.user}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>}
+        />
+        <div className="md:col-span-2">
+          <ModernInput
+            label="密码"
+            type="password"
+            value={connectionData.password}
+            onChange={(e) => setConnectionData(prev => ({ ...prev, password: e.target.value }))}
+            placeholder="password"
+            error={errors.password}
+            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>}
           />
-        ))}
+        </div>
+      </div>
+      
+      <div className="mt-6 flex justify-end">
+        <ModernButton 
+          onClick={handleConnect} 
+          disabled={connected || isConnecting}
+          loading={isConnecting}
+        >
+          {connected ? '已连接' : isConnecting ? '连接中...' : '连接数据库'}
+        </ModernButton>
+      </div>
+      
+      {connected && (
+        <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-xl">
+          <div className="flex items-center">
+            <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="text-green-700 font-medium">数据库连接成功</span>
+          </div>
+        </div>
+      )}
+    </ModernCard>
+  );
 
-        {/* 步骤指示器已移除，使用左侧 dock 导航 */}
+  // 渲染模型管理部分
+  const renderModelSection = () => (
+    <ModernCard>
+      <div className="text-center mb-6">
+        <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">模型管理</h2>
+        <p className="text-gray-600">训练和管理水印模型</p>
+      </div>
 
-        <div className="space-y-6">
-          {/* Step 1: 数据库连接 */}
-          {currentStep === 1 && (
-            <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out animate-slide-in-left">
-              <div className="text-center mb-6">
-                <div className="w-12 h-12 bg-gradient-to-r from-teal-400 to-green-400 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
-                  </svg>
-                </div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">连接数据库</h2>
-                <p className="text-sm text-gray-600">请输入 PGVector 数据库连接信息</p>
+      <div className="space-y-6">
+        {/* 表和列选择 */}
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">数据表</label>
+            <select
+              value={selectedTable}
+              onChange={(e) => handleTableSelect(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200"
+            >
+              <option value="">选择表</option>
+              {tables.map(table => (
+                <option key={table} value={table}>{table}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">向量列</label>
+            <select
+              value={selectedColumn}
+              onChange={(e) => setSelectedColumn(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200"
+              disabled={!selectedTable}
+            >
+              <option value="">选择列</option>
+              {columns.map(column => (
+                <option key={column} value={column}>{column}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">主键</label>
+            <select
+              value={selectedPrimaryKey}
+              onChange={(e) => setSelectedPrimaryKey(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200"
+              disabled={!selectedTable}
+            >
+              <option value="">选择主键</option>
+              {primaryKeys.map(key => (
+                <option key={key} value={key}>{key}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        
+        {/* 向量维度显示 */}
+        {vectorDimension && (
+          <div className="p-4 rounded-xl border bg-teal-50 border-teal-200 text-teal-800">
+            <div className="flex items-center">
+              <div className="w-3 h-3 rounded-full mr-3 bg-teal-500"></div>
+              <span className="font-medium">向量维度: {vectorDimension}</span>
+            </div>
+          </div>
+        )}
+
+        {/* 模型状态显示 */}
+        <div className={`p-4 rounded-xl border ${
+          modelExists 
+            ? 'bg-green-50 border-green-200 text-green-800' 
+            : 'bg-yellow-50 border-yellow-200 text-yellow-800'
+        }`}>
+          <div className="flex items-center">
+            <div className={`w-3 h-3 rounded-full mr-3 ${
+              modelExists ? 'bg-green-500' : 'bg-yellow-500'
+            }`}></div>
+            <span className="font-medium">
+              {modelExists ? '模型已存在' : '需要训练模型'}
+            </span>
+          </div>
+        </div>
+          
+        {/* 训练参数 */}
+        {!modelExists && selectedTable && selectedColumn && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900">训练参数</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">训练轮数</label>
+                <ModernInput
+                  type="number"
+                  value={trainingParams.epochs}
+                  onChange={(e) => setTrainingParams(prev => ({ ...prev, epochs: parseInt(e.target.value) || 100 }))}
+                  min="1"
+                  max="1000"
+                />
               </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">主机地址</label>
-                  <input
-                    type="text"
-                    value={ip}
-                    onChange={e => {
-                      setIp(e.target.value);
-                      if (formErrors.ip) setFormErrors(prev => ({ ...prev, ip: null }));
-                    }}
-                    className={`w-full px-3 py-2 border rounded-lg transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-300 ${
-                      formErrors.ip ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-teal-400'
-                    }`}
-                    disabled={loadingConn}
-                    placeholder="localhost"
-                  />
-                  {formErrors.ip && (
-                    <p className="mt-1 text-sm text-red-600 flex items-center animate-scale-in">
-                      <svg className="w-4 h-4 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {formErrors.ip}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">端口</label>
-                  <input
-                    type="number"
-                    value={port}
-                    onChange={e => {
-                      setPort(parseInt(e.target.value, 10) || 0);
-                      if (formErrors.port) setFormErrors(prev => ({ ...prev, port: null }));
-                    }}
-                    className={`w-full px-3 py-2 border rounded-lg transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-300 ${
-                      formErrors.port ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-teal-400'
-                    }`}
-                    disabled={loadingConn}
-                    placeholder="5432"
-                  />
-                  {formErrors.port && (
-                    <p className="mt-1 text-sm text-red-600 flex items-center animate-scale-in">
-                      <svg className="w-4 h-4 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {formErrors.port}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">数据库名称</label>
-                  <input
-                    type="text"
-                    value={dbname}
-                    onChange={e => {
-                      setDbname(e.target.value);
-                      if (formErrors.dbname) setFormErrors(prev => ({ ...prev, dbname: null }));
-                    }}
-                    className={`w-full px-3 py-2 border rounded-lg transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-300 ${
-                      formErrors.dbname ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-teal-400'
-                    }`}
-                    disabled={loadingConn}
-                    placeholder="test"
-                  />
-                  {formErrors.dbname && (
-                    <p className="mt-1 text-sm text-red-600 flex items-center animate-scale-in">
-                      <svg className="w-4 h-4 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {formErrors.dbname}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">用户名</label>
-                  <input
-                    type="text"
-                    value={user}
-                    onChange={e => {
-                      setUser(e.target.value);
-                      if (formErrors.user) setFormErrors(prev => ({ ...prev, user: null }));
-                    }}
-                    className={`w-full px-3 py-2 border rounded-lg transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-300 ${
-                      formErrors.user ? 'border-red-300 focus:border-red-400' : 'border-gray-300 focus:border-teal-400'
-                    }`}
-                    disabled={loadingConn}
-                    placeholder="postgres"
-                  />
-                  {formErrors.user && (
-                    <p className="mt-1 text-sm text-red-600 flex items-center animate-scale-in">
-                      <svg className="w-4 h-4 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {formErrors.user}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">密码</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-300 transition-all duration-150 ease-in-out"
-                    disabled={loadingConn}
-                    placeholder="输入数据库密码"
-                  />
-                </div>
-
-                <button
-                  onClick={handleConnect}
-                  disabled={loadingConn}
-                  className="w-full bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
-                  style={{borderRadius: '0.5rem'}}
-                >
-                  {loadingConn ? (
-                    <div className="flex items-center justify-center">
-                      <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      连接中...
-                    </div>
-                  ) : (
-                    '连接数据库'
-                  )}
-                </button>
-
-                {/* 连接状态 */}
-                {statusMsg !== '未连接' && (
-                  <div className={`p-3 rounded-lg transition-all duration-150 ease-in-out animate-scale-in ${
-                    connected 
-                      ? 'bg-green-50 border border-green-200' 
-                      : 'bg-red-50 border border-red-200'
-                  }`}>
-                    <div className="flex items-center">
-                      <div className={`w-2 h-2 rounded-full mr-2 ${
-                        connected ? 'bg-green-500 animate-pulse-slow' : 'bg-red-500'
-                      }`}></div>
-                      <span className={`text-sm ${
-                        connected ? 'text-green-700' : 'text-red-700'
-                      }`}>
-                        {statusMsg}
-                      </span>
-                    </div>
-                  </div>
-                )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">学习率</label>
+                <ModernInput
+                  type="number"
+                  step="0.0001"
+                  value={trainingParams.learningRate}
+                  onChange={(e) => setTrainingParams(prev => ({ ...prev, learningRate: parseFloat(e.target.value) || 0.001 }))}
+                  min="0.0001"
+                  max="0.1"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">批次大小</label>
+                <ModernInput
+                  type="number"
+                  value={trainingParams.batchSize}
+                  onChange={(e) => setTrainingParams(prev => ({ ...prev, batchSize: parseInt(e.target.value) || 32 }))}
+                  min="1"
+                  max="512"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">验证比例</label>
+                <ModernInput
+                  type="number"
+                  step="0.1"
+                  value={trainingParams.valRatio}
+                  onChange={(e) => setTrainingParams(prev => ({ ...prev, valRatio: parseFloat(e.target.value) || 0.2 }))}
+                  min="0.1"
+                  max="0.5"
+                />
               </div>
             </div>
-          )}
-
-          {/* Step 2: 水印操作 */}
-          {currentStep === 2 && (
-            <div className="space-y-6 animate-slide-in-right">
-
-              {/* 表和列选择 */}
-              <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <svg className="w-5 h-5 text-teal-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4V7c0-2.21-1.79-4-4-4H8c-2.21 0-4 1.79-4 4z" />
-                  </svg>
-                  数据库配置
-                </h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">选择数据表</label>
-                    <Combobox
-                      options={tables}
-                      value={table}
-                      onChange={setTable}
-                      placeholder="搜索并选择数据表"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">选择主键列</label>
-                    <Combobox
-                      options={primaryKeys}
-                      value={primaryKey}
-                      onChange={setPrimaryKey}
-                      placeholder="搜索并选择主键列"
-                      error={primaryKeys.length === 0 ? "该表无主键" : null}
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">选择向量列</label>
-                    <Combobox
-                      options={columns}
-                      value={column}
-                      onChange={setColumn}
-                      placeholder="搜索并选择向量列"
-                    />
-                  </div>
+            
+            <ModernButton
+              onClick={handleTrainModel}
+              loading={isTraining}
+              disabled={isTraining}
+              className="w-full"
+            >
+              {isTraining ? '训练中...' : '开始训练模型'}
+            </ModernButton>
+            
+            {isTraining && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>训练进度</span>
+                  <span>{trainingProgress}%</span>
                 </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                   <div 
+                     className="bg-gradient-to-r from-teal-500 to-cyan-500 h-2 rounded-full transition-all duration-300"
+                     style={{ width: `${trainingProgress}%` }}
+                   ></div>
+                 </div>
               </div>
+            )}
+          </div>
+        )}
+      </div>
+    </ModernCard>
+  );
 
-              {/* 向量维度和模型状态 */}
-              {vectorDimension && (
-                <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                    <svg className="w-5 h-5 text-purple-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+  // 渲染水印操作部分
+  const renderWatermarkSection = () => (
+    <div className="space-y-8">
+      {/* 水印操作概览 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-100 p-6 rounded-2xl border border-blue-200">
+          <div className="flex items-center mb-4">
+            <div className="w-12 h-12 bg-blue-500 rounded-xl flex items-center justify-center mr-4">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-blue-900">水印嵌入</h3>
+              <p className="text-blue-700 text-sm">将加密信息嵌入向量数据</p>
+            </div>
+          </div>
+          <div className="text-sm text-blue-800 space-y-1">
+            <p>• 支持自定义消息内容</p>
+            <p>• AES-GCM 加密保护</p>
+            <p>• 可调节嵌入率</p>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-teal-50 to-emerald-100 p-6 rounded-2xl border border-teal-200">
+          <div className="flex items-center mb-4">
+            <div className="w-12 h-12 bg-teal-500 rounded-xl flex items-center justify-center mr-4">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-teal-900">水印提取</h3>
+              <p className="text-teal-700 text-sm">从向量数据中提取水印信息</p>
+            </div>
+          </div>
+          <div className="text-sm text-teal-800 space-y-1">
+            <p>• 需要正确的解密密钥</p>
+            <p>• 匹配嵌入时的参数</p>
+            <p>• 验证数据完整性</p>
+          </div>
+        </div>
+      </div>
+
+      <ModernCard title="水印嵌入" subtitle="在向量数据中嵌入水印信息" className="border-l-4 border-l-blue-500">
+        <div className="space-y-4">
+          <ModernInput
+            label="水印信息"
+            value={watermarkData.message}
+            onChange={(e) => setWatermarkData(prev => ({ ...prev, message: e.target.value }))}
+            placeholder="输入要嵌入的水印信息"
+          />
+          
+          {/* 密钥输入区域 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">AES-GCM 加密密钥</label>
+            <div className="space-y-3">
+              {/* 手动输入密钥 */}
+              {!keyFile && (
+                <input
+                  type="password"
+                  value={watermarkData.encryptionKey}
+                  onChange={(e) => setWatermarkData(prev => ({ ...prev, encryptionKey: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200"
+                  placeholder="输入AES-GCM加密密钥"
+                />
+              )}
+
+              {/* 文件上传 */}
+              {keyFile === null && (
+                <div className="border-2 border-dashed border-gray-300 rounded-xl hover:border-teal-400 transition-colors duration-200">
+                  <input
+                    type="file"
+                    id="keyFileInput"
+                    className="hidden"
+                    accept=".key,.txt"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        setKeyFile(file);
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          setWatermarkData(prev => ({ ...prev, encryptionKey: event.target.result }));
+                        };
+                        reader.readAsText(file);
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="keyFileInput"
+                    className="flex flex-col items-center justify-center py-6 cursor-pointer"
+                  >
+                    <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                     </svg>
-                    模型状态
-                  </h3>
-                  
-                  <div className="space-y-4">
-                    {/* 向量维度显示 */}
-                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center">
-                        <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zM21 5a2 2 0 00-2-2h-4a2 2 0 00-2 2v12a4 4 0 004 4h4a4 4 0 001-4V5z" />
-                        </svg>
-                        <span className="text-sm font-medium text-gray-700">向量维度</span>
-                      </div>
-                      <span className="text-lg font-bold text-blue-600">{vectorDimension}维</span>
-                    </div>
-
-                    {/* 模型状态显示 */}
-                    <div className={`p-4 rounded-lg border-2 ${
-                      modelExists 
-                        ? 'bg-green-50 border-green-200' 
-                        : 'bg-orange-50 border-orange-200'
-                    }`}>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start">
-                          <div className={`w-3 h-3 rounded-full mt-1 mr-3 ${
-                            modelExists ? 'bg-green-500' : 'bg-orange-500'
-                          }`}></div>
-                          <div>
-                            <h4 className={`font-medium ${
-                              modelExists ? 'text-green-800' : 'text-orange-800'
-                            }`}>
-                              {modelExists ? '模型已就绪' : '需要训练模型'}
-                            </h4>
-                            <p className={`text-sm mt-1 ${
-                              modelExists ? 'text-green-600' : 'text-orange-600'
-                            }`}>
-                              {modelExists 
-                                ? `${vectorDimension}维向量的水印模型已存在，可以直接进行水印操作`
-                                : `尚未检测到${vectorDimension}维向量的水印模型，需要先训练模型`
-                              }
-                            </p>
-                            {modelExists && modelPath && (
-                              <div className="mt-1">
-                                <p className="text-xs text-gray-500 flex items-start">
-                                  <span className="mr-1 flex-shrink-0">模型路径:</span>
-                                  <span className="overflow-hidden text-ellipsis" style={{ wordBreak: "break-all" }}>
-                                    {modelPath}
-                                  </span>
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 训练按钮和状态 */}
-                      {!modelExists && (
-                        <div className="mt-4">
-                          {!isTraining ? (
-                            <div className="space-y-4">
-                              {/* 训练参数设置按钮 */}
-                              <button
-                                onClick={() => setShowTrainingParams(!showTrainingParams)}
-                                className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors duration-150"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center">
-                                    <svg className="w-4 h-4 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    </svg>
-                                    <span className="text-sm font-medium text-gray-700">训练参数设置</span>
-                                  </div>
-                                  <svg className={`w-4 h-4 text-gray-400 transition-transform duration-150 ${
-                                    showTrainingParams ? 'rotate-180' : ''
-                                  }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                  </svg>
-                                </div>
-                              </button>
-
-                              {/* 训练参数表单 */}
-                              {showTrainingParams && (
-                                <div className="space-y-4 p-4 bg-gray-50 rounded-lg border animate-scale-in">
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 mb-1">训练轮数</label>
-                                      <input
-                                        type="number"
-                                        min="1"
-                                        max="1000"
-                                        value={trainingParams.epochs}
-                                        onChange={e => setTrainingParams(prev => ({
-                                          ...prev,
-                                          epochs: parseInt(e.target.value) || 100
-                                        }))}
-                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-orange-400"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 mb-1">学习率</label>
-                                      <input
-                                        type="number"
-                                        min="0.0001"
-                                        max="0.01"
-                                        step="0.0001"
-                                        value={trainingParams.learning_rate}
-                                        onChange={e => setTrainingParams(prev => ({
-                                          ...prev,
-                                          learning_rate: parseFloat(e.target.value) || 0.0003
-                                        }))}
-                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-orange-400"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 mb-1">批处理大小</label>
-                                      <select
-                                        value={trainingParams.batch_size}
-                                        onChange={e => setTrainingParams(prev => ({
-                                          ...prev,
-                                          batch_size: parseInt(e.target.value)
-                                        }))}
-                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-orange-400"
-                                      >
-                                        <option value={1024}>1024</option>
-                                        <option value={2048}>2048</option>
-                                        <option value={4096}>4096</option>
-                                        <option value={8192}>8192</option>
-                                        <option value={16384}>16384</option>
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 mb-1">验证集比例</label>
-                                      <select
-                                        value={trainingParams.val_ratio}
-                                        onChange={e => setTrainingParams(prev => ({
-                                          ...prev,
-                                          val_ratio: parseFloat(e.target.value)
-                                        }))}
-                                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-orange-400"
-                                      >
-                                        <option value={0.1}>10%</option>
-                                        <option value={0.15}>15%</option>
-                                        <option value={0.2}>20%</option>
-                                        <option value={0.25}>25%</option>
-                                      </select>
-                                    </div>
-                                  </div>
-                                  <div className="text-xs text-gray-500 bg-blue-50 p-2 rounded">
-                                    💡 <strong>参数说明：</strong>训练轮数控制训练时长，学习率影响收敛速度，批处理大小影响内存使用和训练稳定性
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* 开始训练按钮 */}
-                              <button
-                                onClick={handleTrainModel}
-                                disabled={modelChecking || !vectorDimension}
-                                className="w-full bg-gradient-to-r from-orange-400 to-red-400 hover:from-orange-500 hover:to-red-500 text-white font-medium py-3 px-4 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
-                              >
-                                <div className="flex items-center justify-center">
-                                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                  </svg>
-                                  开始训练模型
-                                </div>
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="space-y-4">
-                              {/* 训练进度条 */}
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between text-sm">
-                                  <span className="text-orange-700 font-medium">训练进度</span>
-                                  <span className="text-orange-600">{trainingProgress}%</span>
-                                </div>
-                                <div className="w-full bg-orange-100 rounded-full h-2">
-                                  <div 
-                                    className="bg-gradient-to-r from-orange-400 to-red-400 h-2 rounded-full transition-all duration-300 ease-out"
-                                    style={{ width: `${trainingProgress}%` }}
-                                  ></div>
-                                </div>
-                                <div className="flex items-center justify-between text-xs text-gray-600">
-                                  <span>Epoch {currentEpoch}/{totalEpochs}</span>
-                                  <span>BER: {(trainingMetrics.val_ber * 100).toFixed(2)}%</span>
-                                </div>
-                              </div>
-
-                              {/* 训练状态 */}
-                              <div className="flex items-center">
-                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-orange-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span className="text-orange-700 font-medium">正在训练模型...</span>
-                              </div>
-
-                              {/* 训练消息 */}
-                              {trainingMessage && (
-                                <p className="text-sm text-orange-600 bg-orange-100 p-3 rounded">
-                                  {trainingMessage}
-                                </p>
-                              )}
-
-                              {/* 实时指标 */}
-                              <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div className="bg-blue-50 p-2 rounded">
-                                  <div className="text-blue-600 font-medium">训练损失</div>
-                                  <div className="text-blue-800">{trainingMetrics.train_loss.toFixed(4)}</div>
-                                </div>
-                                <div className="bg-green-50 p-2 rounded">
-                                  <div className="text-green-600 font-medium">验证BER</div>
-                                  <div className="text-green-800">{(trainingMetrics.val_ber * 100).toFixed(2)}%</div>
-                                </div>
-                              </div>
-
-                              {/* 任务ID */}
-                              <div className="text-xs text-gray-500">
-                                训练ID: {trainingTaskId}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* 训练结果展示 */}
-                      {finalResults && (
-                        <div className="mt-4 space-y-3">
-                          <div className={`p-4 rounded-lg border-2 ${
-                            finalResults.performance_level === 'excellent' ? 'bg-green-50 border-green-200' :
-                            finalResults.performance_level === 'good' ? 'bg-blue-50 border-blue-200' :
-                            'bg-red-50 border-red-200'
-                          }`}>
-                            <div className="flex items-start">
-                              <div className={`w-3 h-3 rounded-full mt-1 mr-3 ${
-                                finalResults.performance_level === 'excellent' ? 'bg-green-500' :
-                                finalResults.performance_level === 'good' ? 'bg-blue-500' :
-                                'bg-red-500'
-                              }`}></div>
-                              <div className="flex-1">
-                                <h4 className={`font-medium ${
-                                  finalResults.performance_level === 'excellent' ? 'text-green-800' :
-                                  finalResults.performance_level === 'good' ? 'text-blue-800' :
-                                  'text-red-800'
-                                }`}>
-                                  训练完成 - {
-                                    finalResults.performance_level === 'excellent' ? '效果极佳' :
-                                    finalResults.performance_level === 'good' ? '效果良好' :
-                                    '效果不佳'
-                                  }
-                                </h4>
-                                <div className="mt-2 text-sm space-y-1">
-                                  <div>验证错误率：<span className="font-medium">{(finalResults.best_ber * 100).toFixed(2)}%</span></div>
-                                  <div>训练参数：{finalResults.train_params.epochs}轮，学习率{finalResults.train_params.learning_rate}</div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* 建议信息 */}
-                          {finalResults.suggestions && finalResults.suggestions.length > 0 && (
-                            <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
-                              <h5 className="text-yellow-800 font-medium text-sm mb-2">💡 优化建议</h5>
-                              <ul className="text-sm text-yellow-700 space-y-1">
-                                {finalResults.suggestions.map((suggestion, index) => (
-                                  <li key={index} className="flex items-start">
-                                    <span className="mr-2">•</span>
-                                    <span>{suggestion}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                              <button
-                                onClick={() => {
-                                  setFinalResults(null);
-                                  setModelExists(false);
-                                  setShowTrainingParams(true);
-                                }}
-                                className="mt-3 text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-3 py-1 rounded transition-colors duration-150"
-                              >
-                                重新训练
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                    <p className="text-sm text-gray-600 text-center">
+                      点击选择密钥文件<br />
+                      <span className="text-xs text-gray-500">支持 .key, .txt 格式</span>
+                    </p>
+                  </label>
                 </div>
               )}
 
-                {/* Tab 切换已移除，显示由左侧 dock 控制 */}
-                <div className="backdrop-blur-lg bg-white/70 p-6 rounded-2xl shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all duration-150 ease-in-out">
+              {/* 文件信息显示 */}
+              {keyFile && (
+                <div className="flex items-center justify-between p-3 bg-teal-50 border border-teal-200 rounded-xl">
+                  <div className="flex items-center">
+                    <svg className="w-4 h-4 text-teal-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <span className="text-sm text-teal-700">{keyFile.name}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setKeyFile(null);
+                      setWatermarkData(prev => ({ ...prev, encryptionKey: '' }));
+                    }}
+                    className="text-red-500 hover:text-red-700 transition-colors duration-200"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
 
-                  {/* 嵌入水印 Tab */}
-                  {activeTab === 'embed' && (
-                    <div className="space-y-4 animate-fade-in">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">明文消息 (16字符)</label>
-                        <textarea
-                          rows={2}
-                          value={message}
-                          onChange={e => setMessage(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-300 transition-all duration-150 ease-in-out resize-none"
-                          disabled={!connected || !table || !column}
-                          maxLength={16}
-                          placeholder="输入16个字符的明文消息"
-                        />
-                        <div className="mt-1 flex justify-between items-center text-xs">
-                          <span className={`transition-colors duration-150 ${
-                            message.length === 16 ? 'text-teal-600 font-medium' : 'text-gray-500'
-                          }`}>
-                            {message.length}/16 字符
-                          </span>
-                          {message.length !== 16 && message.length > 0 && (
-                            <span className="text-amber-600 flex items-center animate-scale-in">
-                              <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.734 0l-7.92 13.5c-.77.833-.192 2.5 1.732 2.5z" />
-                              </svg>
-                              需要恰好16个字符
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* 加密密钥输入区域 */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">AES-GCM 加密密钥</label>
-                        <div className="space-y-3">
-                          
-
-                          {/* 手动输入密钥 */}
-                          {!keyFile && (
-                            <input
-                              type="password"
-                              value={encryptionKey}
-                              onChange={e => setEncryptionKey(e.target.value)}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-300 transition-all duration-150 ease-in-out"
-                              disabled={!connected || !table || !column}
-                              placeholder="输入AES-GCM加密密钥"
-                            />
-                          )}
-
-                          {/* 文件上传 */}
-                          {keyFile === null && (
-                            <div className="border-2 border-dashed border-gray-300 rounded-lg hover:border-teal-400 transition-colors duration-150">
-                              <input
-                                type="file"
-                                id="keyFileInput"
-                                className="hidden"
-                                accept=".key,.txt"
-                                onChange={e => {
-                                  const file = e.target.files[0];
-                                  if (file) {
-                                    setKeyFile(file);
-                                    const reader = new FileReader();
-                                    reader.onload = (event) => {
-                                      setEncryptionKey(event.target.result);
-                                    };
-                                    reader.readAsText(file);
-                                  }
-                                }}
-                              />
-                              <label
-                                htmlFor="keyFileInput"
-                                className="flex flex-col items-center justify-center py-4 cursor-pointer"
-                              >
-                                <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                </svg>
-                                <p className="text-sm text-gray-600 text-center">
-                                  点击选择密钥文件<br />
-                                  <span className="text-xs text-gray-500">支持 .key, .txt 格式</span>
-                                </p>
-                              </label>
-                            </div>
-                          )}
-
-                          {/* 文件信息显示 */}
-                          {keyFile && (
-                            <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                              <div className="flex items-center">
-                                <svg className="w-4 h-4 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                </svg>
-                                <span className="text-sm text-blue-700">{keyFile.name}</span>
-                              </div>
-                              <button
-                                onClick={() => {
-                                  setKeyFile(null);
-                                  setEncryptionKey('');
-                                }}
-                                className="text-red-500 hover:text-red-700 transition-colors duration-150"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
-                            </div>
-                          )}
-
-                          <div className="text-xs text-gray-500 bg-blue-50 p-2 rounded">
-                            💡 <strong>密钥说明：</strong>系统将使用AES-GCM算法对16字节明文进行加密，生成16字节密文和8字节验证标签，总共24字节用于水印嵌入
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 水印嵌入率 */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">水印嵌入率</label>
-                        <div className="space-y-2">
-                          <input
-                            type="range"
-                            min="0.01"
-                            max="1"
-                            step="0.01"
-                            value={embedRate}
-                            onChange={e => setEmbedRate(parseFloat(e.target.value))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                            disabled={!connected || !table || !column}
-                          />
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="text-gray-500">1%</span>
-                            <span className="text-teal-600 font-medium bg-teal-50 px-2 py-1 rounded">
-                              {(embedRate * 100).toFixed(1)}%
-                            </span>
-                            <span className="text-gray-500">100%</span>
-                          </div>
-                          <p className="text-xs text-gray-500">
-                            控制用于嵌入水印的向量比例，推荐使用10-20%
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* 操作按钮 */}
-                      <button
-                        onClick={handleEmbed}
-                        disabled={!connected || !table || !primaryKey || !column || !message || message.length !== 16 || !encryptionKey || isEmbedding || !modelExists}
-                        className="w-full bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
-                        style={{borderRadius: '0.5rem'}}
+              <div className="text-xs text-gray-500 bg-blue-50 p-3 rounded-xl border border-blue-200">
+                💡 <strong>密钥说明：</strong>系统将使用AES-GCM算法对水印信息进行加密，生成密文和验证标签用于水印嵌入。请确保密钥的安全性。
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ModernInput
+              label="嵌入率"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value={watermarkData.embedRate}
+              onChange={(e) => setWatermarkData(prev => ({ ...prev, embedRate: parseFloat(e.target.value) }))}
+            />
+            <ModernInput
+              label="随机数种子 (可选)"
+              value={watermarkData.nonce}
+              onChange={(e) => setWatermarkData(prev => ({ ...prev, nonce: e.target.value }))}
+              placeholder="留空将自动生成"
+            />
+          </div>
+          
+          <ModernButton
+            onClick={handleEmbedWatermark}
+            loading={isEmbedding}
+            disabled={isEmbedding || !modelExists}
+            className="w-full"
+          >
+            {isEmbedding ? '嵌入中...' : '嵌入水印'}
+          </ModernButton>
+          
+          {embedResult && (
+            <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+              <div className="flex items-start">
+                <svg className="w-5 h-5 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1">
+                  <h4 className="font-medium text-green-800 mb-1">嵌入结果</h4>
+                  <p className="text-green-700 text-sm whitespace-pre-line">{embedResult}</p>
+                  
+                  {/* 添加复制nonce的按钮 */}
+                  {lastNonce && (
+                    <div className="mt-4 flex gap-2">
+                      <ModernButton
+                        onClick={() => {
+                          navigator.clipboard.writeText(lastNonce);
+                          showToast('已复制nonce到剪贴板', 'success');
+                        }}
+                        size="sm"
+                        variant="secondary"
+                        className="text-xs"
                       >
-                        {isEmbedding ? (
-                          <div className="flex items-center justify-center">
-                            <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            嵌入中...
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center">
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                            </svg>
-                            {!modelExists && vectorDimension ? '需要先训练模型' : (!encryptionKey ? '需要输入密钥' : '嵌入水印')}
-                          </div>
-                        )}
-                      </button>
-
-                      {/* 模型不存在提示 */}
-                      {!modelExists && vectorDimension && (
-                        <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg animate-scale-in">
-                          <div className="flex items-center">
-                            <svg className="w-4 h-4 text-orange-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.734 0l-7.92 13.5c-.77.833-.192 2.5 1.732 2.5z" />
-                            </svg>
-                            <p className="text-sm text-orange-700">
-                              请先训练 {vectorDimension} 维向量的水印模型，才能进行水印操作
-                            </p>
-                          </div>
-                        </div>
-                      )}
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 003-3v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2v12" />
+                        </svg>
+                        复制nonce
+                      </ModernButton>
                       
-                      {embedResult && (
-                        <div className="p-4 bg-green-50 border border-green-200 rounded-lg animate-scale-in">
-                          <div className="flex items-start">
-                            <svg className="w-5 h-5 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <div>
-                              <h4 className="font-medium text-green-800 mb-1">嵌入结果</h4>
-                              <p className="text-green-700 text-sm whitespace-pre-line">{embedResult}</p>
-                              
-                              {/* 添加复制nonce的按钮 */}
-                              {lastNonce && (
-                                <div className="mt-4">
-                                  <button
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(lastNonce);
-                                      showToast('已复制nonce到剪贴板', 'success');
-                                    }}
-                                    className="bg-green-100 hover:bg-green-200 text-green-800 text-xs font-medium py-1 px-3 rounded transition-colors duration-150"
-                                  >
-                                    <span className="flex items-center">
-                                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 003-3v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2v12" />
-                                      </svg>
-                                      复制nonce
-                                    </span>
-                                  </button>
-                                  
-                                  {/* 添加下载nonce的按钮 */}
-                                  <button
-                                    onClick={() => {
-                                      const element = document.createElement('a');
-                                      const file = new Blob([lastNonce], {type: 'text/plain'});
-                                      element.href = URL.createObjectURL(file);
-                                      element.download = `watermark_nonce_${new Date().toISOString().slice(0,10)}.txt`;
-                                      document.body.appendChild(element);
-                                      element.click();
-                                      document.body.removeChild(element);
-                                      showToast('已下载nonce文件', 'success');
-                                    }}
-                                    className="ml-2 bg-blue-100 hover:bg-blue-200 text-blue-800 text-xs font-medium py-1 px-3 rounded transition-colors duration-150"
-                                  >
-                                    <span className="flex items-center">
-                                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                      </svg>
-                                      下载nonce
-                                    </span>
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 可视化组件 */}
-                      {(isProcessingVisualization || visualizationData) && (
-                        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg animate-scale-in">
-                          <h4 className="font-medium text-blue-800 mb-3 flex items-center">
-                            <svg className="w-4 h-4 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                            </svg>
-                            向量分布可视化
-                          </h4>
-                          
-                          {/* 降维方法和控制按钮 */}
-                          <div className="flex justify-between items-center mb-4">
-                            <div className="text-sm text-gray-700">t-SNE 降维可视化</div>
-                            
-                            <button
-                              onClick={() => {
-                                if (visualizationData) {
-                                  setVisualizationData(null);
-                                }
-                              }}
-                              disabled={isProcessingVisualization || !visualizationData}
-                              className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-2 py-1 rounded transition-colors duration-150 disabled:opacity-50"
-                            >
-                              清除图表
-                            </button>
-                          </div>
-                          
-                          {isProcessingVisualization ? (
-                            <div className="flex items-center justify-center py-8">
-                              <div className="bg-white p-5 rounded-lg shadow-md w-full max-w-md">
-                                <h4 className="font-medium text-blue-800 mb-3 flex items-center">
-                                  <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                  </svg>
-                                  正在生成向量可视化
-                                </h4>
-                                
-                                <div className="space-y-4">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center">
-                                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                      </svg>
-                                      <span className="text-blue-800 font-medium">处理中</span>
-                                    </div>
-                                    <span className="text-blue-600 font-medium">{visualizationProgress}%</span>
-                                  </div>
-                                  
-                                  <div className="w-full bg-blue-100 rounded-full h-2.5">
-                                    <div 
-                                      className="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
-                                      style={{ width: `${visualizationProgress}%` }}
-                                    ></div>
-                                  </div>
-                                  
-                                  {estimatedTime && (
-                                    <p className="text-sm text-gray-600">
-                                      预计剩余时间: {formatTimeRemaining(estimatedTime, visualizationProgress)}
-                                    </p>
-                                  )}
-                                  
-                                  <div className="flex items-center justify-between text-xs text-gray-500">
-                                    <span>处理 t-SNE 降维</span>
-                                    <span>处理数据点: {processingVectorsCount}</span>
-                                  </div>
-                                  
-                                </div>
-                              </div>
-                            </div>
-                          ) : visualizationData && (
-                            <>
-                              <div className="bg-white p-3 rounded-lg shadow mb-3">
-                                {/* 缩放控制按钮 */}
-                                <div className="flex justify-end mb-2">
-                                  <div className="bg-white rounded-lg shadow-sm border border-gray-200 flex">
-                                    <button
-                                      onClick={zoomIn}
-                                      className="p-2 hover:bg-gray-100 text-gray-700 focus:outline-none"
-                                      title="放大"
-                                    >
-                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                      </svg>
-                                    </button>
-                                    <button
-                                      onClick={zoomOut}
-                                      className="p-2 hover:bg-gray-100 text-gray-700 focus:outline-none"
-                                      title="缩小"
-                                      disabled={zoomLevel <= 1}
-                                    >
-                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12H6" />
-                                      </svg>
-                                    </button>
-                                    <button
-                                      onClick={resetZoom}
-                                      className="p-2 hover:bg-gray-100 text-gray-700 focus:outline-none"
-                                      title="重置缩放"
-                                      disabled={zoomLevel === 1}
-                                    >
-                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
-                                      </svg>
-                                    </button>
-                                  </div>
-                                </div>
-                                {/* 添加可拖拽的图表容器 */}
-                                <div 
-                                  ref={chartRef}
-                                  onMouseDown={handleChartMouseDown}
-                                  style={{ 
-                                    width: '100%', 
-                                    height: '350px', 
-                                    cursor: zoomLevel > 1 ? 'grab' : 'default' 
-                                  }}
-                                >
-                                <ResponsiveContainer width="100%" height={350}>
-                                  <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                                    <XAxis 
-                                      type="number" 
-                                      dataKey="x" 
-                                      name="X" 
-                                      domain={zoomDomain ? zoomDomain.x : initialDomain.x}
-                                      allowDataOverflow
-                                    />
-                                    <YAxis 
-                                      type="number" 
-                                      dataKey="y" 
-                                      name="Y" 
-                                      domain={zoomDomain ? zoomDomain.y : initialDomain.y}
-                                      allowDataOverflow
-                                    />
-                                    <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
-                                        if (active && payload && payload.length) {
-                                          return (
-                                            <div className="bg-white p-2 border border-gray-200 shadow-sm rounded text-xs">
-                                              <p>X: {payload[0].value.toFixed(3)}</p>
-                                              <p>Y: {payload[1].value.toFixed(3)}</p>
-                                            </div>
-                                          );
-                                        }
-                                        return null;
-                                      }} />
-                                    <Legend />
-                                    <Scatter 
-                                      name="原始向量" 
-                                      data={visualizationData.original.map((point, i) => ({ x: point[0], y: point[1] }))} 
-                                      fill="#8884d8"
-                                      shape={(props) => {
-                                        const { cx, cy } = props;
-                                        const size = 5; // 控制形状大小
-                                        return (
-                                          <circle cx={cx} cy={cy} r={size} fill="#8884d8" stroke="#6b67af" strokeWidth={1} />
-                                        );
-                                      }}
-                                    />
-
-                                    <Scatter 
-                                      name="嵌入水印后" 
-                                      data={visualizationData.embedded.map((point, i) => ({ x: point[0], y: point[1] }))} 
-                                      fill="#82ca9d"
-                                      shape={(props) => {
-                                        const { cx, cy } = props;
-                                        const size = 5; // 控制形状大小
-                                        return (
-                                          <path 
-                                            d={`M${cx-size},${cy} L${cx+size},${cy} M${cx},${cy-size} L${cx},${cy+size}`} 
-                                            stroke="#4caf7d" 
-                                            strokeWidth={2} 
-                                            fill="none"
-                                          />
-                                        );
-                                      }}
-                                    />
-                                  </ScatterChart>
-                                </ResponsiveContainer>
-                              </div>
-                            </div>
-                              <div className="grid grid-cols-3 gap-3">
-                                <div className="bg-blue-100 p-3 rounded">
-                                  <div className="text-sm font-medium text-blue-800 mb-1">平均欧氏距离</div>
-                                  <div className="text-lg font-bold text-blue-900">
-                                    {visualizationData.avg_distance.toFixed(5)}
-                                  </div>
-                                </div>
-                                <div className="bg-green-100 p-3 rounded">
-                                  <div className="text-sm font-medium text-green-800 mb-1">余弦相似度</div>
-                                  <div className="text-lg font-bold text-green-900">
-                                    {visualizationData.avg_cosine_similarity ? 
-                                      visualizationData.avg_cosine_similarity.toFixed(5) : 
-                                      'N/A'}
-                                  </div>
-                                </div>
-                                <div className="bg-purple-100 p-3 rounded">
-                                  <div className="text-sm font-medium text-purple-800 mb-1">样本数量</div>
-                                  <div className="text-lg font-bold text-purple-900">
-                                    {visualizationData.n_samples}
-                                  </div>
-                                </div>
-                              </div>
-
-                              {visualizationData.sampled && (
-                              <div className="mt-2 text-xs text-gray-600 bg-blue-50 p-2 rounded">
-                                <span className="font-medium">注:</span> 为提高性能，当前图表显示从{visualizationData.total_samples}个样本中随机选择的{visualizationData.n_samples}个样本。
-                                统计指标（余弦相似度、欧氏距离）仍基于全部{visualizationData.total_samples}个样本计算。
-                              </div>
-                            )}
-                              
-                              <div className="mt-3 text-xs text-gray-600">
-                                <p>注: 图表使用{visualizationData.method === 'tsne' ? 't-SNE' : 'PCA'}降维算法将高维向量降至2D空间显示。原始向量显示为圆点，水印向量显示为十字。</p>
-                                <p className="mt-1">
-                                  <span className="font-medium">余弦相似度:</span> 值越接近1表示水印嵌入前后向量方向变化越小；
-                                  <span className="font-medium ml-2">欧氏距离:</span> 值越小表示水印嵌入前后向量绝对变化越小。
-                                </p>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* 提取水印 Tab */}
-                  {activeTab === 'extract' && (
-                    <div className="space-y-4 animate-fade-in">
-                      {/* 密钥输入区域（提取时需要） */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">AES-GCM 解密密钥</label>
-                        <div className="space-y-3">
-                          {/* 手动输入密钥 */}
-                          {!keyFile && (
-                            <input
-                              type="password"
-                              value={encryptionKey}
-                              onChange={e => setEncryptionKey(e.target.value)}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-300 transition-all duration-150 ease-in-out"
-                              disabled={!connected || !table || !column}
-                              placeholder="输入用于解密的AES-GCM密钥"
-                            />
-                          )}
-
-                          {/* 文件上传 */}
-                          {keyFile === null && (
-                            <div className="border-2 border-dashed border-gray-300 rounded-lg hover:border-teal-400 transition-colors duration-150">
-                              <input
-                                type="file"
-                                id="extractKeyFileInput"
-                                className="hidden"
-                                accept=".key,.txt"
-                                onChange={e => {
-                                  const file = e.target.files[0];
-                                  if (file) {
-                                    setKeyFile(file);
-                                    const reader = new FileReader();
-                                    reader.onload = (event) => {
-                                      setEncryptionKey(event.target.result);
-                                    };
-                                    reader.readAsText(file);
-                                  }
-                                }}
-                              />
-                              <label
-                                htmlFor="extractKeyFileInput"
-                                className="flex flex-col items-center justify-center py-4 cursor-pointer"
-                              >
-                                <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                </svg>
-                                <p className="text-sm text-gray-600 text-center">
-                                  点击选择密钥文件<br />
-                                  <span className="text-xs text-gray-500">支持 .key, .txt 格式</span>
-                                </p>
-                              </label>
-                            </div>
-                          )}
-
-                          {/* 文件信息显示 */}
-                          {keyFile && (
-                            <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                              <div className="flex items-center">
-                                <svg className="w-4 h-4 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                </svg>
-                                <span className="text-sm text-blue-700">{keyFile.name}</span>
-                              </div>
-                              <button
-                                onClick={() => {
-                                  setKeyFile(null);
-                                  setEncryptionKey('');
-                                }}
-                                className="text-red-500 hover:text-red-700 transition-colors duration-150"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
-                            </div>
-                          )}
-
-                          <div className="text-xs text-gray-500 bg-amber-50 p-2 rounded border border-amber-200">
-                            ⚠️ <strong>注意：</strong>解密密钥必须与嵌入时使用的密钥完全一致，才能正确提取明文消息
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* nonce输入区域（提取时需要） */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          nonce <span className="text-red-600">*</span>
-                        </label>
-                        <div className="space-y-3">
-                          <input
-                            type="text"
-                            value={nonce}
-                            onChange={e => setNonce(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-300 transition-all duration-150 ease-in-out"
-                            disabled={!connected || !table || !column}
-                            placeholder="输入用于解密的nonce（嵌入水印时生成的十六进制字符串）"
-                          />
-                          <div className="text-xs text-gray-500 bg-amber-50 p-2 rounded border border-amber-200">
-                            ⚠️ <strong>重要：</strong>必须提供嵌入水印时生成的nonce，否则无法正确解密
-                          </div>
-                          
-                          {/* 上传nonce文件 */}
-                          <div className="mt-2">
-                            <label className="block text-xs text-gray-600 mb-1">或上传nonce文件：</label>
-                            <input
-                              type="file"
-                              id="nonceFileInput"
-                              className="hidden"
-                              accept=".txt"
-                              onChange={e => {
-                                const file = e.target.files[0];
-                                if (file) {
-                                  const reader = new FileReader();
-                                  reader.onload = (event) => {
-                                    setNonce(event.target.result.trim());
-                                    showToast('成功加载nonce文件', 'success');
-                                  };
-                                  reader.readAsText(file);
-                                }
-                              }}
-                            />
-                            <label
-                              htmlFor="nonceFileInput"
-                              className="flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg cursor-pointer bg-white hover:bg-gray-50 transition-colors duration-150"
-                            >
-                              <svg className="w-4 h-4 mr-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                              </svg>
-                              <span className="text-sm text-gray-700">选择nonce文件</span>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* 水印嵌入率 */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">水印嵌入率</label>
-                        <div className="space-y-2">
-                          <input
-                            type="range"
-                            min="0.01"
-                            max="1"
-                            step="0.01"
-                            value={embedRate}
-                            onChange={e => setEmbedRate(parseFloat(e.target.value))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                            disabled={!connected || !table || !column}
-                          />
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="text-gray-500">1%</span>
-                            <span className="text-blue-600 font-medium bg-blue-50 px-2 py-1 rounded">
-                              {(embedRate * 100).toFixed(1)}%
-                            </span>
-                            <span className="text-gray-500">100%</span>
-                          </div>
-                          <div className={`rounded-lg p-3 ${
-                            lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
-                              ? 'bg-red-50 border border-red-200'
-                              : 'bg-amber-50 border border-amber-200'
-                          }`}>
-                            <div className="flex items-start">
-                              <svg className={`w-4 h-4 mr-2 mt-0.5 flex-shrink-0 ${
-                                lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
-                                  ? 'text-red-500'
-                                  : 'text-amber-500'
-                              }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.734 0l-7.92 13.5c-.77.833-.192 2.5 1.732 2.5z" />
-                            </svg>
-                            <div>
-                              <p className={`text-xs font-medium mb-1 ${
-                                lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
-
-                                  ? 'text-red-700'
-                                  : 'text-amber-700'
-                              }`}>
-                                {lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
-                                  ? '⚠️ 嵌入率不匹配'
-                                  : '重要提示'
-                                }
-                              </p>
-                              <p className={`text-xs ${
-                                lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001
-                                  ? 'text-red-600'
-                                  : 'text-amber-600'
-                              }`}>
-                                {lastEmbedRate !== null 
-                                  ? Math.abs(embedRate - lastEmbedRate) > 0.001
-                                    ? `当前嵌入率 ${(embedRate * 100).toFixed(1)}% 与上次成功嵌入时的 ${(lastEmbedRate * 100).toFixed(1)}% 不一致，可能无法正确提取水印。`
-                                    : `当前嵌入率 ${(embedRate * 100).toFixed(1)}% 与上次成功嵌入时保持一致，可以正确提取水印。`
-                                  : '提取时的嵌入率应与嵌入水印时使用的嵌入率保持一致，才能正确提取水印信息。'
-                                }
-                              </p>
-                              {lastEmbedRate !== null && Math.abs(embedRate - lastEmbedRate) > 0.001 && (
-                                <button
-                                  onClick={() => setEmbedRate(lastEmbedRate)}
-                                  className="mt-2 text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded transition-colors duration-150"
-                                >
-                                  恢复到 {(lastEmbedRate * 100).toFixed(1)}%
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      </div>
-
-                      {/* 操作按钮 */}
-                      <button
-                        onClick={handleExtract}
-                        disabled={!connected || !table || !primaryKey || !column || !encryptionKey || !nonce || isExtracting || !modelExists}
-                        className="w-full bg-gradient-to-r from-teal-400 to-green-400 hover:from-teal-500 hover:to-green-500 text-white font-medium py-3 rounded-lg hover:scale-105 transition-all duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl"
-                        style={{borderRadius: '0.5rem'}}
+                      <ModernButton
+                        onClick={() => {
+                          const element = document.createElement('a');
+                          const file = new Blob([lastNonce], {type: 'text/plain'});
+                          element.href = URL.createObjectURL(file);
+                          element.download = `pgvector_watermark_nonce_${new Date().toISOString().slice(0,10)}.txt`;
+                          document.body.appendChild(element);
+                          element.click();
+                          document.body.removeChild(element);
+                          showToast('已下载nonce文件', 'success');
+                        }}
+                        size="sm"
+                        variant="secondary"
+                        className="text-xs"
                       >
-                        {isExtracting ? (
-                          <div className="flex items-center justify-center">
-                            <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            提取中...
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center">
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
-                            {!modelExists && vectorDimension ? '需要先训练模型' : (!encryptionKey ? '需要输入密钥' : !nonce ? '需要输入nonce' : '提取水印')}
-                          </div>
-                        )}
-                      </button>
-
-                      {extractResult && (
-                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg animate-scale-in">
-                          <div className="flex items-start">
-                            <svg className="w-5 h-5 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <div>
-                              <h4 className="font-medium text-blue-800 mb-1">提取结果</h4>
-                              <p className="text-blue-700 text-sm">{extractResult}</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        下载nonce
+                      </ModernButton>
                     </div>
                   )}
                 </div>
+              </div>
             </div>
           )}
         </div>
+      </ModernCard>
+
+      <ModernCard title="水印提取" subtitle="从向量数据中提取水印信息" className="border-l-4 border-l-teal-500">
+        <div className="space-y-4">
+          {/* 嵌入率输入 */}
+          <ModernInput
+            label="嵌入率"
+            type="number"
+            step="0.01"
+            min="0.01"
+            max="1"
+            value={extractData.embedRate}
+            onChange={(e) => setExtractData(prev => ({ ...prev, embedRate: parseFloat(e.target.value) }))}
+            placeholder="0.1"
+          />
+
+          {/* 密钥输入区域（提取时需要） */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">AES-GCM 解密密钥</label>
+            <div className="space-y-3">
+              {/* 手动输入密钥 */}
+              {!extractKeyFile && (
+                <input
+                  type="password"
+                  value={extractData.encryptionKey}
+                  onChange={(e) => setExtractData(prev => ({ ...prev, encryptionKey: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200"
+                  placeholder="输入用于解密的AES-GCM密钥"
+                />
+              )}
+
+              {/* 文件上传 */}
+              {extractKeyFile === null && (
+                <div className="border-2 border-dashed border-gray-300 rounded-xl hover:border-teal-400 transition-colors duration-200">
+                  <input
+                    type="file"
+                    id="extractKeyFileInput"
+                    className="hidden"
+                    accept=".key,.txt"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        setExtractKeyFile(file);
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          setExtractData(prev => ({ ...prev, encryptionKey: event.target.result }));
+                        };
+                        reader.readAsText(file);
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="extractKeyFileInput"
+                    className="flex flex-col items-center justify-center py-4 cursor-pointer"
+                  >
+                    <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <p className="text-sm text-gray-600 text-center">
+                      点击选择密钥文件<br />
+                      <span className="text-xs text-gray-500">支持 .key, .txt 格式</span>
+                    </p>
+                  </label>
+                </div>
+              )}
+
+              {/* 文件信息显示 */}
+              {extractKeyFile && (
+                <div className="flex items-center justify-between p-3 bg-teal-50 border border-teal-200 rounded-xl">
+                  <div className="flex items-center">
+                    <svg className="w-4 h-4 text-teal-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <span className="text-sm text-teal-700">{extractKeyFile.name}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setExtractKeyFile(null);
+                      setExtractData(prev => ({ ...prev, encryptionKey: '' }));
+                    }}
+                    className="text-red-500 hover:text-red-700 transition-colors duration-200"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+
+              <div className="text-xs text-gray-500 bg-amber-50 p-3 rounded-xl border border-amber-200">
+                ⚠️ <strong>注意：</strong>解密密钥必须与嵌入时使用的密钥完全一致，才能正确提取明文消息
+              </div>
+            </div>
+          </div>
+          
+          {/* Nonce输入区域 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">随机数种子 (Nonce)</label>
+            <div className="space-y-3">
+              {/* 手动输入nonce */}
+              {!extractNonceFile && (
+                <input
+                  type="text"
+                  value={extractData.nonce}
+                  onChange={(e) => setExtractData(prev => ({ ...prev, nonce: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200"
+                  placeholder="输入嵌入时使用的随机数种子"
+                />
+              )}
+
+              {/* 使用上次嵌入的nonce */}
+              {lastNonce && !extractNonceFile && (
+                <ModernButton
+                  onClick={() => {
+                    setExtractData(prev => ({ ...prev, nonce: lastNonce }));
+                    showToast('已使用上次嵌入的nonce', 'success');
+                  }}
+                  size="sm"
+                  variant="secondary"
+                  className="text-xs"
+                >
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  使用上次嵌入的nonce
+                </ModernButton>
+              )}
+
+              {/* nonce文件上传 */}
+              {extractNonceFile === null && (
+                <div className="border-2 border-dashed border-gray-300 rounded-xl hover:border-teal-400 transition-colors duration-200">
+                  <input
+                    type="file"
+                    id="extractNonceFileInput"
+                    className="hidden"
+                    accept=".txt"
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (file) {
+                        setExtractNonceFile(file);
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          setExtractData(prev => ({ ...prev, nonce: event.target.result.trim() }));
+                        };
+                        reader.readAsText(file);
+                      }
+                    }}
+                  />
+                  <label
+                    htmlFor="extractNonceFileInput"
+                    className="flex flex-col items-center justify-center py-4 cursor-pointer"
+                  >
+                    <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <p className="text-sm text-gray-600 text-center">
+                      点击选择nonce文件<br />
+                      <span className="text-xs text-gray-500">支持 .txt 格式</span>
+                    </p>
+                  </label>
+                </div>
+              )}
+
+              {/* nonce文件信息显示 */}
+              {extractNonceFile && (
+                <div className="flex items-center justify-between p-3 bg-teal-50 border border-teal-200 rounded-xl">
+                  <div className="flex items-center">
+                    <svg className="w-4 h-4 text-teal-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <span className="text-sm text-teal-700">{extractNonceFile.name}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setExtractNonceFile(null);
+                      setExtractData(prev => ({ ...prev, nonce: '' }));
+                    }}
+                    className="text-red-500 hover:text-red-700 transition-colors duration-200"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+
+              <div className="text-xs text-gray-500 bg-amber-50 p-3 rounded-xl border border-amber-200">
+                ⚠️ <strong>注意：</strong>nonce必须与嵌入时使用的完全一致，才能正确提取水印
+              </div>
+            </div>
+          </div>
+          
+          <ModernButton
+            onClick={handleExtractWatermark}
+            loading={isExtracting}
+            disabled={isExtracting || !modelExists}
+            variant="secondary"
+            className="w-full"
+          >
+            {isExtracting ? '提取中...' : '提取水印'}
+          </ModernButton>
+          
+          {extractResult && (
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <p className="text-blue-700">
+                <span className="font-medium">提取结果:</span> {extractResult}
+              </p>
+            </div>
+          )}
+        </div>
+      </ModernCard>
+    </div>
+  );
+
+  // 渲染可视化部分
+  const renderVisualizationSection = () => (
+    <ModernCard>
+      {/* 数据可视化标题和图标 */}
+      <div className="text-center mb-6">
+        <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">数据可视化</h2>
+        <p className="text-gray-600">生成向量数据的可视化图表</p>
+      </div>
+
+      <div className="space-y-6">
+        <ModernButton
+          onClick={handleVisualize}
+          loading={isVisualizing}
+          disabled={isVisualizing || !selectedTable || !selectedColumn}
+          className="w-full"
+        >
+          {isVisualizing ? '生成中...' : '生成可视化'}
+        </ModernButton>
+        
+        {visualizationData && (
+          <div className="h-96 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart data={visualizationData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="x" />
+                <YAxis dataKey="y" />
+                <Tooltip />
+                <Scatter dataKey="y" fill="#14b8a6" />
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </ModernCard>
+  );
+
+  // 渲染主要内容
+  const renderMainContent = () => {
+    switch (activeSection) {
+      case 'connection':
+        return renderConnectionSection();
+      case 'model':
+        return renderModelSection();
+      case 'watermark':
+        return renderWatermarkSection();
+      case 'visualization':
+        return renderVisualizationSection();
+      default:
+        return renderConnectionSection();
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-teal-50 pt-20">
+      <div className="flex min-h-screen">
+        <Sidebar
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+          connected={connected}
+          modelExists={modelExists}
+        />
+        
+        {/* 主内容区域 */}
+        <div className="flex-1 overflow-hidden">
+          <div className="h-full overflow-y-auto">
+            <div className="p-6 lg:p-8 xl:p-10">
+              {/* 页面标题区域 */}
+              <div className="mb-8">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                      PgVector 数据库水印系统
+                    </h1>
+                    <p className="text-gray-600 text-lg">
+                      基于向量数据库的智能水印嵌入与提取平台
+                    </p>
+                  </div>
+                  
+                  {/* 状态指示器 */}
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-2">
+                      <div className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                      <span className="text-sm font-medium text-gray-700">
+                        {connected ? '已连接' : '未连接'}
+                      </span>
+                    </div>
+                    {connected && (
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-3 h-3 rounded-full ${modelExists ? 'bg-blue-500' : 'bg-yellow-500'}`}></div>
+                        <span className="text-sm font-medium text-gray-700">
+                          {modelExists ? '模型就绪' : '模型未训练'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 主要内容容器 */}
+              <div className="max-w-6xl mx-auto">
+                <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 p-6 lg:p-8">
+                  {renderMainContent()}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* Toast通知 */}
+      <div className="fixed top-24 right-6 space-y-4 z-50">
+        {toasts.map(toast => (
+          <ModernToast key={toast.id} toast={toast} onRemove={removeToast} />
+        ))}
       </div>
     </div>
   );
 }
+
+
