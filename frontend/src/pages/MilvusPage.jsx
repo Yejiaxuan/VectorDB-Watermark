@@ -302,7 +302,8 @@ export default function MilvusPage() {
   // 数据库连接
   const handleConnect = async () => {
     const newErrors = {};
-    Object.keys(connectionData).forEach(key => {
+    // 只验证host和port是必填的，user和password是可选的
+    ['host', 'port'].forEach(key => {
       if (!connectionData[key].trim()) {
         newErrors[key] = '此字段不能为空';
       }
@@ -640,40 +641,75 @@ export default function MilvusPage() {
         <p className="text-gray-600">基于Milvus向量数据库的水印嵌入系统</p>
       </div>
 
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">主机地址</label>
-          <ModernInput
-            type="text"
-            value={connectionData.host}
-            onChange={(e) => setConnectionData(prev => ({ ...prev, host: e.target.value }))}
-            placeholder="localhost"
-            error={errors.host}
-            disabled={isConnecting}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">端口</label>
-          <ModernInput
-            type="text"
-            value={connectionData.port}
-            onChange={(e) => setConnectionData(prev => ({ ...prev, port: e.target.value }))}
-            placeholder="19530"
-            error={errors.port}
-            disabled={isConnecting}
-          />
-        </div>
-
-        <ModernButton
-          onClick={handleConnect}
-          disabled={isConnecting || connected}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <ModernInput
+          label="主机地址"
+          value={connectionData.host}
+          onChange={(e) => setConnectionData(prev => ({ ...prev, host: e.target.value }))}
+          placeholder="localhost"
+          error={errors.host}
+          disabled={isConnecting}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
+          </svg>}
+        />
+        <ModernInput
+          label="端口"
+          value={connectionData.port}
+          onChange={(e) => setConnectionData(prev => ({ ...prev, port: e.target.value }))}
+          placeholder="19530"
+          error={errors.port}
+          disabled={isConnecting}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+          </svg>}
+        />
+        <ModernInput
+          label="用户名"
+          value={connectionData.user}
+          onChange={(e) => setConnectionData(prev => ({ ...prev, user: e.target.value }))}
+          placeholder="username (可选)"
+          error={errors.user}
+          disabled={isConnecting}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>}
+        />
+        <ModernInput
+          label="密码"
+          type="password"
+          value={connectionData.password}
+          onChange={(e) => setConnectionData(prev => ({ ...prev, password: e.target.value }))}
+          placeholder="password (可选)"
+          error={errors.password}
+          disabled={isConnecting}
+          icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          </svg>}
+        />
+      </div>
+      
+      <div className="mt-6 flex justify-end">
+        <ModernButton 
+          onClick={handleConnect} 
+          disabled={connected || isConnecting}
           loading={isConnecting}
-          className="w-full"
         >
-          {connected ? '已连接' : '连接数据库'}
+          {connected ? '已连接' : isConnecting ? '连接中...' : '连接数据库'}
         </ModernButton>
       </div>
+      
+      {connected && (
+        <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-xl">
+          <div className="flex items-center">
+            <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="text-green-700 font-medium">数据库连接成功</span>
+          </div>
+        </div>
+      )}
     </ModernCard>
   );
 
