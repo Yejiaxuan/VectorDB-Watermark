@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  connectDB, 
-  fetchTables, 
-  fetchColumns, 
-  fetchPrimaryKeys, 
-  getVectorDimension, 
-  checkModel, 
-  trainModel, 
+import {
+  connectDB,
+  fetchTables,
+  fetchColumns,
+  fetchPrimaryKeys,
+  getVectorDimension,
+  checkModel,
+  trainModel,
   getTrainingStatus,
   embedWatermark,
   extractWatermark,
@@ -59,11 +59,10 @@ const StepIndicator = ({ currentStep, steps }) => {
     <div className="flex items-center justify-between mb-8">
       {steps.map((step, index) => (
         <div key={index} className="flex items-center">
-          <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-300 ${
-            index + 1 <= currentStep 
-              ? 'bg-gradient-to-r from-teal-500 to-cyan-500 border-teal-500 text-white' 
-              : 'border-gray-300 text-gray-400'
-          }`}>
+          <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-300 ${index + 1 <= currentStep
+            ? 'bg-gradient-to-r from-teal-500 to-cyan-500 border-teal-500 text-white'
+            : 'border-gray-300 text-gray-400'
+            }`}>
             {index + 1 <= currentStep ? (
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -72,15 +71,13 @@ const StepIndicator = ({ currentStep, steps }) => {
               <span className="text-sm font-semibold">{index + 1}</span>
             )}
           </div>
-          <span className={`ml-3 text-sm font-medium ${
-            index + 1 <= currentStep ? 'text-teal-600' : 'text-gray-400'
-          }`}>
+          <span className={`ml-3 text-sm font-medium ${index + 1 <= currentStep ? 'text-teal-600' : 'text-gray-400'
+            }`}>
             {step}
           </span>
           {index < steps.length - 1 && (
-            <div className={`mx-4 h-0.5 w-16 ${
-              index + 1 < currentStep ? 'bg-teal-500' : 'bg-gray-300'
-            }`} />
+            <div className={`mx-4 h-0.5 w-16 ${index + 1 < currentStep ? 'bg-teal-500' : 'bg-gray-300'
+              }`} />
           )}
         </div>
       ))}
@@ -104,9 +101,8 @@ const ModernInput = ({ label, type = 'text', value, onChange, placeholder, error
           value={value}
           onChange={onChange}
           placeholder={placeholder}
-          className={`w-full ${icon ? 'pl-10' : 'pl-4'} pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 ${
-            error ? 'border-red-500 ring-2 ring-red-200' : ''
-          }`}
+          className={`w-full ${icon ? 'pl-10' : 'pl-4'} pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 ${error ? 'border-red-500 ring-2 ring-red-200' : ''
+            }`}
           {...props}
         />
       </div>
@@ -118,14 +114,14 @@ const ModernInput = ({ label, type = 'text', value, onChange, placeholder, error
 // 现代化按钮组件
 const ModernButton = ({ children, variant = 'primary', size = 'md', loading = false, disabled = false, onClick, className = '', ...props }) => {
   const baseClasses = 'inline-flex items-center justify-center font-medium rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2';
-  
+
   const variants = {
     primary: 'bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white focus:ring-teal-500',
     secondary: 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-500',
     danger: 'bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white focus:ring-red-500',
     success: 'bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white focus:ring-green-500'
   };
-  
+
   const sizes = {
     sm: 'px-3 py-2 text-sm',
     md: 'px-6 py-3 text-base',
@@ -136,9 +132,8 @@ const ModernButton = ({ children, variant = 'primary', size = 'md', loading = fa
     <button
       onClick={onClick}
       disabled={disabled || loading}
-      className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${
-        disabled || loading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 hover:shadow-lg'
-      } ${className}`}
+      className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${disabled || loading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105 hover:shadow-lg'
+        } ${className}`}
       {...props}
     >
       {loading && (
@@ -199,13 +194,12 @@ const Sidebar = ({ activeSection, onSectionChange, connected, modelExists }) => 
               key={section.id}
               onClick={() => section.enabled && onSectionChange(section.id)}
               disabled={!section.enabled}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-left transition-all duration-200 ${
-                activeSection === section.id
-                  ? 'bg-gradient-to-r from-teal-50 to-cyan-50 text-teal-700 border border-teal-200'
-                  : section.enabled
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-left transition-all duration-200 ${activeSection === section.id
+                ? 'bg-gradient-to-r from-teal-50 to-cyan-50 text-teal-700 border border-teal-200'
+                : section.enabled
                   ? 'text-gray-700 hover:bg-gray-50'
                   : 'text-gray-400 cursor-not-allowed'
-              }`}
+                }`}
             >
               <span className="text-lg">{section.icon}</span>
               <span className="font-medium">{section.name}</span>
@@ -227,7 +221,7 @@ export default function PgvectorPage() {
   const [activeSection, setActiveSection] = useState('connection');
   const [connected, setConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  
+
   // 数据库连接参数
   const [connectionData, setConnectionData] = useState({
     ip: '',
@@ -237,7 +231,7 @@ export default function PgvectorPage() {
     password: ''
   });
   const [errors, setErrors] = useState({});
-  
+
   // 表和列选择
   const [tables, setTables] = useState([]);
   const [selectedTable, setSelectedTable] = useState('');
@@ -245,14 +239,15 @@ export default function PgvectorPage() {
   const [selectedColumn, setSelectedColumn] = useState('');
   const [primaryKeys, setPrimaryKeys] = useState([]);
   const [selectedPrimaryKey, setSelectedPrimaryKey] = useState('');
-  
+
   // 模型状态
   const [vectorDimension, setVectorDimension] = useState(null);
   const [modelExists, setModelExists] = useState(false);
   const [isTraining, setIsTraining] = useState(false);
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [trainingResult, setTrainingResult] = useState(null);
-  
+  const [trainingMetrics, setTrainingMetrics] = useState([]);
+
   // 训练参数
   const [trainingParams, setTrainingParams] = useState({
     epochs: 100,
@@ -260,7 +255,7 @@ export default function PgvectorPage() {
     batchSize: 8196,
     valRatio: 0.15
   });
-  
+
   // 水印嵌入操作
   const [watermarkData, setWatermarkData] = useState({
     message: '',
@@ -269,7 +264,7 @@ export default function PgvectorPage() {
     nonce: ''
   });
   const [keyFile, setKeyFile] = useState(null);
-  
+
   // 水印提取操作（分离的状态）
   const [extractData, setExtractData] = useState({
     encryptionKey: '',
@@ -285,7 +280,7 @@ export default function PgvectorPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [embedResult, setEmbedResult] = useState('');
   const [extractResult, setExtractResult] = useState('');
-  
+
   // 可视化相关状态
   const [visualizationData, setVisualizationData] = useState(null);
   const [isProcessingVisualization, setIsProcessingVisualization] = useState(false);
@@ -304,7 +299,7 @@ export default function PgvectorPage() {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const chartRef = useRef(null);
   const [isVisualizing, setIsVisualizing] = useState(false);
-  
+
   // Toast通知
   const [toasts, setToasts] = useState([]);
 
@@ -326,12 +321,12 @@ export default function PgvectorPage() {
         newErrors[key] = '此字段不能为空';
       }
     });
-    
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
-    
+
     try {
       setIsConnecting(true);
       const dbParams = {
@@ -341,17 +336,17 @@ export default function PgvectorPage() {
         user: connectionData.user,
         password: connectionData.password
       };
-      
+
       const response = await connectDB(dbParams);
-      
+
       if (response.success) {
         setConnected(true);
         showToast('数据库连接成功！', 'success');
-        
+
         // 获取表列表
         const tables = await fetchTables(dbParams);
         setTables(tables);
-        
+
         setActiveSection('model');
       } else {
         showToast(`连接失败: ${response.message}`, 'error');
@@ -366,6 +361,12 @@ export default function PgvectorPage() {
   // 获取列信息
   const handleTableSelect = async (tableName) => {
     setSelectedTable(tableName);
+    // 清理训练相关状态
+    setTrainingResult(null);
+    setTrainingMetrics([]);
+    setVectorDimension(null);
+    setModelExists(false);
+
     try {
       const dbParams = {
         host: connectionData.ip,
@@ -374,12 +375,12 @@ export default function PgvectorPage() {
         user: connectionData.user,
         password: connectionData.password
       };
-      
+
       const [columns, primaryKeys] = await Promise.all([
         fetchColumns(dbParams, tableName),
         fetchPrimaryKeys(dbParams, tableName)
       ]);
-      
+
       setColumns(columns);
       setPrimaryKeys(primaryKeys);
     } catch (error) {
@@ -395,7 +396,7 @@ export default function PgvectorPage() {
       setModelExists(false);
       return;
     }
-    
+
     try {
       const dbParams = {
         host: connectionData.ip,
@@ -404,14 +405,14 @@ export default function PgvectorPage() {
         user: connectionData.user,
         password: connectionData.password
       };
-      
+
       const dimResponse = await getVectorDimension(dbParams, selectedTable, selectedColumn);
       if (dimResponse.dimension) {
         setVectorDimension(dimResponse.dimension);
-        
+
         const modelResponse = await checkModel(dimResponse.dimension);
         setModelExists(modelResponse.exists);
-        
+
         // 只在模型状态发生变化时显示提示
         // 不显示toast，避免频繁弹出提示
       } else {
@@ -432,11 +433,13 @@ export default function PgvectorPage() {
       showToast('请先选择表和列，并确保获取到向量维度', 'error');
       return;
     }
-    
+
     try {
       setIsTraining(true);
       setTrainingProgress(0);
-      
+      setTrainingMetrics([]); // 重置训练指标
+      setTrainingResult(null); // 重置训练结果
+
       const dbParams = {
         host: connectionData.ip,
         port: connectionData.port,
@@ -444,7 +447,7 @@ export default function PgvectorPage() {
         user: connectionData.user,
         password: connectionData.password
       };
-      
+
       // 转换字段名以匹配后端API
       const apiTrainingParams = {
         epochs: trainingParams.epochs,
@@ -452,27 +455,51 @@ export default function PgvectorPage() {
         batch_size: trainingParams.batchSize,
         val_ratio: trainingParams.valRatio
       };
-      
+
       const response = await trainModel(dbParams, selectedTable, selectedColumn, vectorDimension, apiTrainingParams);
-      
+
       if (response.task_id) {
         showToast('模型训练已开始', 'success');
-        
+
         // 轮询训练状态
         const pollTrainingStatus = async () => {
           try {
             const status = await getTrainingStatus(response.task_id);
-            
+
             if (status.progress !== undefined) {
               setTrainingProgress(status.progress);
             }
-            
+
+            // 更新训练指标历史
+            if (status.metrics && status.current_epoch > 0) {
+              setTrainingMetrics(prev => {
+                const newMetrics = [...prev];
+                const epochData = {
+                  epoch: status.current_epoch,
+                  train_loss: status.metrics.train_loss,
+                  train_ber: status.metrics.train_ber * 100, // 转换为百分比
+                  val_loss: status.metrics.val_loss,
+                  val_ber: status.metrics.val_ber * 100 // 转换为百分比
+                };
+
+                // 检查是否已存在该epoch的数据，如果存在则更新，否则添加
+                const existingIndex = newMetrics.findIndex(m => m.epoch === status.current_epoch);
+                if (existingIndex >= 0) {
+                  newMetrics[existingIndex] = epochData;
+                } else {
+                  newMetrics.push(epochData);
+                }
+
+                return newMetrics;
+              });
+            }
+
             if (status.status === 'completed') {
               setIsTraining(false);
               setTrainingProgress(100);
               setTrainingResult(status); // 保存完整的训练结果
               await checkModelStatus();
-              
+
               // 显示详细的训练结果
               const metrics = status.final_metrics || {};
               const performanceMsg = `训练完成！\n最佳BER: ${(status.best_ber * 100).toFixed(2)}%\n性能等级: ${status.performance_level || 'N/A'}\n最终训练损失: ${metrics.train_loss?.toFixed(4) || 'N/A'}\n最终验证损失: ${metrics.val_loss?.toFixed(4) || 'N/A'}`;
@@ -490,7 +517,7 @@ export default function PgvectorPage() {
             setTimeout(pollTrainingStatus, 3000);
           }
         };
-        
+
         // 开始轮询
         setTimeout(pollTrainingStatus, 1000); // 1秒后开始第一次检查
       } else {
@@ -513,7 +540,7 @@ export default function PgvectorPage() {
       showToast('请填写加密密钥，并选择主键列', 'error');
       return;
     }
-    
+
     try {
       setIsEmbedding(true);
       const dbParams = {
@@ -523,7 +550,7 @@ export default function PgvectorPage() {
         user: connectionData.user,
         password: connectionData.password
       };
-      
+
       const response = await embedWatermark(
         dbParams,
         selectedTable,
@@ -533,25 +560,25 @@ export default function PgvectorPage() {
         watermarkData.embedRate,
         watermarkData.encryptionKey
       );
-      
+
       if (response.success) {
         setLastEmbedRate(watermarkData.embedRate);
-        
+
         // 直接使用后端返回的可视化数据
         if (response.visualization_data) {
           console.log("收到的可视化数据:", response.visualization_data);
-          
+
           // 直接使用已处理好的可视化数据
           setVisualizationData(response.visualization_data);
           setInitialDomain(calculateInitialDomain(response.visualization_data));
           setIsVisualizing(false);
         }
-        
+
         // 保存返回的nonce
         if (response.nonce) {
           setLastNonce(response.nonce);
         }
-        
+
         setEmbedResult(`${response.message}\n\n💡 提示：提取水印时请使用相同的嵌入率 ${(watermarkData.embedRate * 100).toFixed(1)}% 和相同的解密密钥以确保正确提取。\n\n⚠️ 重要：请保存以下nonce值，提取水印时需要：\n${response.nonce}`);
         showToast(`水印嵌入成功！使用了 ${(watermarkData.embedRate * 100).toFixed(1)}% 的嵌入率`, 'success');
       } else {
@@ -571,7 +598,7 @@ export default function PgvectorPage() {
       showToast('请填写加密密钥、nonce值，并选择主键列', 'error');
       return;
     }
-    
+
     // 检查嵌入率是否与上次嵌入时一致
     if (lastEmbedRate && extractData.embedRate !== lastEmbedRate) {
       const confirmExtract = window.confirm(
@@ -581,7 +608,7 @@ export default function PgvectorPage() {
         return;
       }
     }
-    
+
     try {
       setIsExtracting(true);
       const dbParams = {
@@ -591,7 +618,7 @@ export default function PgvectorPage() {
         user: connectionData.user,
         password: connectionData.password
       };
-      
+
       const response = await extractWatermark(
         dbParams,
         selectedTable,
@@ -601,7 +628,7 @@ export default function PgvectorPage() {
         extractData.encryptionKey,
         extractData.nonce
       );
-      
+
       if (response.success) {
         setExtractResult(response.message);
         showToast('水印提取成功！', 'success');
@@ -618,22 +645,22 @@ export default function PgvectorPage() {
   // 计算初始域范围
   const calculateInitialDomain = (data) => {
     if (!data || !data.original || !data.embedded) return { x: [-50, 50], y: [-50, 50] };
-    
+
     // 合并所有点
     const allPoints = [
       ...data.original.map(point => ({ x: point[0], y: point[1] })),
       ...data.embedded.map(point => ({ x: point[0], y: point[1] }))
     ];
-    
+
     // 计算最小和最大值并添加一些边距
     const xValues = allPoints.map(p => p.x);
     const yValues = allPoints.map(p => p.y);
-    
+
     const minX = Math.floor(Math.min(...xValues));
     const maxX = Math.ceil(Math.max(...xValues));
     const minY = Math.floor(Math.min(...yValues));
     const maxY = Math.ceil(Math.max(...yValues));
-    
+
     // 添加边距
     const padding = 5;
     return {
@@ -657,15 +684,15 @@ export default function PgvectorPage() {
       const centerY = (currentDomain.y[0] + currentDomain.y[1]) / 2;
       const rangeX = currentDomain.x[1] - currentDomain.x[0];
       const rangeY = currentDomain.y[1] - currentDomain.y[0];
-      
+
       const newRangeX = rangeX / (newLevel / prev);
       const newRangeY = rangeY / (newLevel / prev);
-      
+
       setZoomDomain({
         x: [centerX - newRangeX / 2, centerX + newRangeX / 2],
         y: [centerY - newRangeY / 2, centerY + newRangeY / 2]
       });
-      
+
       return newLevel;
     });
   };
@@ -678,21 +705,21 @@ export default function PgvectorPage() {
         setZoomDomain(null);
         return 1;
       }
-      
+
       const currentDomain = zoomDomain || initialDomain;
       const centerX = (currentDomain.x[0] + currentDomain.x[1]) / 2;
       const centerY = (currentDomain.y[0] + currentDomain.y[1]) / 2;
       const rangeX = currentDomain.x[1] - currentDomain.x[0];
       const rangeY = currentDomain.y[1] - currentDomain.y[0];
-      
+
       const newRangeX = rangeX / (newLevel / prev);
       const newRangeY = rangeY / (newLevel / prev);
-      
+
       setZoomDomain({
         x: [centerX - newRangeX / 2, centerX + newRangeX / 2],
         y: [centerY - newRangeY / 2, centerY + newRangeY / 2]
       });
-      
+
       return newLevel;
     });
   };
@@ -708,22 +735,22 @@ export default function PgvectorPage() {
   // 鼠标移动拖拽
   const handleMouseMove = (e) => {
     if (!isDragging || !zoomDomain) return;
-    
+
     const deltaX = e.clientX - dragStart.x;
     const deltaY = e.clientY - dragStart.y;
-    
+
     const rangeX = zoomDomain.x[1] - zoomDomain.x[0];
     const rangeY = zoomDomain.y[1] - zoomDomain.y[0];
-    
+
     // 根据图表大小调整移动速度
     const moveFactorX = rangeX / 400; // 假设图表宽度为400px
     const moveFactorY = rangeY / 350; // 假设图表高度为350px
-    
+
     const newDomain = {
       x: [zoomDomain.x[0] - deltaX * moveFactorX, zoomDomain.x[1] - deltaX * moveFactorX],
       y: [zoomDomain.y[0] + deltaY * moveFactorY, zoomDomain.y[1] + deltaY * moveFactorY]
     };
-    
+
     setZoomDomain(newDomain);
     setDragStart({ x: e.clientX, y: e.clientY });
   };
@@ -739,7 +766,7 @@ export default function PgvectorPage() {
       showToast('请先选择表和列', 'error');
       return;
     }
-    
+
     try {
       setIsVisualizing(true);
       // 暂时生成模拟数据用于演示
@@ -748,7 +775,7 @@ export default function PgvectorPage() {
         y: Math.random() * 100,
         type: i % 2 === 0 ? '原始向量' : '水印向量'
       }));
-      
+
       setVisualizationData(mockData);
       showToast('可视化生成成功！（演示数据）', 'success');
     } catch (error) {
@@ -764,7 +791,7 @@ export default function PgvectorPage() {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     }
-    
+
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
@@ -795,12 +822,14 @@ export default function PgvectorPage() {
       const timer = setTimeout(() => {
         checkModelStatus();
       }, 300);
-      
+
       return () => clearTimeout(timer);
     } else {
       // 当表或列未选择时，重置相关状态
       setVectorDimension(null);
       setModelExists(false);
+      setTrainingResult(null);
+      setTrainingMetrics([]);
     }
   }, [selectedTable, selectedColumn]);
 
@@ -880,17 +909,17 @@ export default function PgvectorPage() {
           />
         </div>
       </div>
-      
+
       <div className="mt-6 flex justify-end">
-        <ModernButton 
-          onClick={handleConnect} 
+        <ModernButton
+          onClick={handleConnect}
           disabled={connected || isConnecting}
           loading={isConnecting}
         >
           {connected ? '已连接' : isConnecting ? '连接中...' : '连接数据库'}
         </ModernButton>
       </div>
-      
+
       {connected && (
         <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-xl">
           <div className="flex items-center">
@@ -933,12 +962,19 @@ export default function PgvectorPage() {
               ))}
             </select>
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">向量列</label>
             <select
               value={selectedColumn}
-              onChange={(e) => setSelectedColumn(e.target.value)}
+              onChange={(e) => {
+                setSelectedColumn(e.target.value);
+                // 清理训练相关状态
+                setTrainingResult(null);
+                setTrainingMetrics([]);
+                setVectorDimension(null);
+                setModelExists(false);
+              }}
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200"
               disabled={!selectedTable}
             >
@@ -948,7 +984,7 @@ export default function PgvectorPage() {
               ))}
             </select>
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">主键</label>
             <select
@@ -964,7 +1000,7 @@ export default function PgvectorPage() {
             </select>
           </div>
         </div>
-        
+
         {/* 向量维度显示 */}
         {vectorDimension && (
           <div className="p-4 rounded-xl border bg-teal-50 border-teal-200 text-teal-800">
@@ -976,21 +1012,19 @@ export default function PgvectorPage() {
         )}
 
         {/* 模型状态显示 */}
-        <div className={`p-4 rounded-xl border ${
-          modelExists 
-            ? 'bg-green-50 border-green-200 text-green-800' 
-            : 'bg-yellow-50 border-yellow-200 text-yellow-800'
-        }`}>
+        <div className={`p-4 rounded-xl border ${modelExists
+          ? 'bg-green-50 border-green-200 text-green-800'
+          : 'bg-yellow-50 border-yellow-200 text-yellow-800'
+          }`}>
           <div className="flex items-center">
-            <div className={`w-3 h-3 rounded-full mr-3 ${
-              modelExists ? 'bg-green-500' : 'bg-yellow-500'
-            }`}></div>
+            <div className={`w-3 h-3 rounded-full mr-3 ${modelExists ? 'bg-green-500' : 'bg-yellow-500'
+              }`}></div>
             <span className="font-medium">
               {modelExists ? '模型已存在' : '需要训练模型'}
             </span>
           </div>
         </div>
-          
+
         {/* 训练参数 */}
         {!modelExists && selectedTable && selectedColumn && (
           <div className="space-y-4">
@@ -1039,7 +1073,7 @@ export default function PgvectorPage() {
                 />
               </div>
             </div>
-            
+
             <ModernButton
               onClick={handleTrainModel}
               loading={isTraining}
@@ -1048,7 +1082,7 @@ export default function PgvectorPage() {
             >
               {isTraining ? '训练中...' : '开始训练模型'}
             </ModernButton>
-            
+
             {isTraining && (
               <div className="space-y-2">
                 <div className="flex justify-between text-sm text-gray-600">
@@ -1056,22 +1090,23 @@ export default function PgvectorPage() {
                   <span>{trainingProgress}%</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
-                   <div 
-                     className="bg-gradient-to-r from-teal-500 to-cyan-500 h-2 rounded-full transition-all duration-300"
-                     style={{ width: `${trainingProgress}%` }}
-                   ></div>
-                 </div>
+                  <div
+                    className="bg-gradient-to-r from-teal-500 to-cyan-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${trainingProgress}%` }}
+                  ></div>
+                </div>
               </div>
             )}
-            
-            {/* 训练结果 */}
+
+
+            {/* 训练结果 - 独立显示，不受modelExists条件限制 */}
             {trainingResult && (
               <div className="p-6 rounded-xl border bg-green-50 border-green-200">
                 <div className="flex items-center mb-4">
                   <div className="w-4 h-4 rounded-full mr-3 bg-green-500"></div>
                   <span className="font-semibold text-green-800 text-lg">训练完成</span>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div className="bg-white p-3 rounded-lg border border-green-200">
                     <div className="text-sm text-gray-600">最佳BER</div>
@@ -1086,7 +1121,7 @@ export default function PgvectorPage() {
                     </div>
                   </div>
                 </div>
-                
+
                 {trainingResult.final_metrics && (
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div className="bg-white p-3 rounded-lg border border-green-200">
@@ -1103,19 +1138,19 @@ export default function PgvectorPage() {
                     </div>
                   </div>
                 )}
-                
+
                 {trainingResult.train_params && (
                   <div className="bg-white p-3 rounded-lg border border-green-200">
                     <div className="text-sm text-gray-600 mb-2">训练参数</div>
                     <div className="text-sm text-gray-700">
-                      Epochs: {trainingResult.train_params.epochs} | 
-                      LR: {trainingResult.train_params.learning_rate} | 
-                      Batch: {trainingResult.train_params.batch_size} | 
+                      Epochs: {trainingResult.train_params.epochs} |
+                      LR: {trainingResult.train_params.learning_rate} |
+                      Batch: {trainingResult.train_params.batch_size} |
                       Val Ratio: {trainingResult.train_params.val_ratio}
                     </div>
                   </div>
                 )}
-                
+
                 {trainingResult.suggestions && trainingResult.suggestions.length > 0 && (
                   <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                     <div className="text-sm font-medium text-yellow-800 mb-2">优化建议</div>
@@ -1128,6 +1163,117 @@ export default function PgvectorPage() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* 训练性能监控 - 独立显示，训练完成后不消失 */}
+        {trainingMetrics.length > 0 && (
+          <div className="bg-white p-4 rounded-xl border border-gray-200">
+            <h4 className="text-sm font-medium text-gray-700 mb-3">
+              训练性能监控 {isTraining ? '(实时)' : '(历史)'}
+            </h4>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trainingMetrics}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    dataKey="epoch"
+                    stroke="#666"
+                    fontSize={12}
+                    label={{ value: 'Epoch', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis
+                    stroke="#666"
+                    fontSize={12}
+                    label={{ value: 'Loss', angle: -90, position: 'insideLeft' }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#fff',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      fontSize: '12px'
+                    }}
+                    formatter={(value, name) => [
+                      typeof value === 'number' ? value.toFixed(4) : value,
+                      name === 'train_loss' ? '训练损失' :
+                        name === 'val_loss' ? '验证损失' :
+                          name === 'train_ber' ? '训练BER(%)' :
+                            name === 'val_ber' ? '验证BER(%)' : name
+                    ]}
+                    labelFormatter={(epoch) => `Epoch ${epoch}`}
+                  />
+                  <Legend
+                    formatter={(value) =>
+                      value === 'train_loss' ? '训练损失' :
+                        value === 'val_loss' ? '验证损失' :
+                          value === 'train_ber' ? '训练BER(%)' :
+                            value === 'val_ber' ? '验证BER(%)' : value
+                    }
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="train_loss"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={{ fill: '#3b82f6', strokeWidth: 2, r: 3 }}
+                    activeDot={{ r: 5, stroke: '#3b82f6', strokeWidth: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="val_loss"
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                    dot={{ fill: '#ef4444', strokeWidth: 2, r: 3 }}
+                    activeDot={{ r: 5, stroke: '#ef4444', strokeWidth: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="train_ber"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={{ fill: '#10b981', strokeWidth: 2, r: 3 }}
+                    activeDot={{ r: 5, stroke: '#10b981', strokeWidth: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="val_ber"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    dot={{ fill: '#f59e0b', strokeWidth: 2, r: 3 }}
+                    activeDot={{ r: 5, stroke: '#f59e0b', strokeWidth: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* 当前指标显示 */}
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                <div className="text-xs text-blue-600">训练损失</div>
+                <div className="text-sm font-bold text-blue-700">
+                  {trainingMetrics[trainingMetrics.length - 1]?.train_loss?.toFixed(4) || 'N/A'}
+                </div>
+              </div>
+              <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                <div className="text-xs text-red-600">验证损失</div>
+                <div className="text-sm font-bold text-red-700">
+                  {trainingMetrics[trainingMetrics.length - 1]?.val_loss?.toFixed(4) || 'N/A'}
+                </div>
+              </div>
+              <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                <div className="text-xs text-green-600">训练BER</div>
+                <div className="text-sm font-bold text-green-700">
+                  {trainingMetrics[trainingMetrics.length - 1]?.train_ber?.toFixed(2) || 'N/A'}%
+                </div>
+              </div>
+              <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                <div className="text-xs text-yellow-600">验证BER</div>
+                <div className="text-sm font-bold text-yellow-700">
+                  {trainingMetrics[trainingMetrics.length - 1]?.val_ber?.toFixed(2) || 'N/A'}%
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1195,11 +1341,10 @@ export default function PgvectorPage() {
                 }
               }}
               maxLength={16}
-              className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 ${
-                watermarkData.message.length === 16 ? 'border-green-300 bg-green-50' : 
-                watermarkData.message.length > 12 ? 'border-yellow-300 bg-yellow-50' : 
-                'border-gray-300'
-              }`}
+              className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all duration-200 ${watermarkData.message.length === 16 ? 'border-green-300 bg-green-50' :
+                watermarkData.message.length > 12 ? 'border-yellow-300 bg-yellow-50' :
+                  'border-gray-300'
+                }`}
               placeholder="输入要嵌入的水印信息（16字符）"
             />
             <div className="flex justify-between items-center mt-1">
@@ -1208,16 +1353,15 @@ export default function PgvectorPage() {
                 {watermarkData.message.length > 0 && watermarkData.message.length < 16 && '还需要输入更多字符'}
                 {watermarkData.message.length === 16 && '✓ 字符数量正确'}
               </div>
-              <div className={`text-xs font-medium ${
-                watermarkData.message.length === 16 ? 'text-green-600' : 
-                watermarkData.message.length > 12 ? 'text-yellow-600' : 
-                'text-gray-500'
-              }`}>
+              <div className={`text-xs font-medium ${watermarkData.message.length === 16 ? 'text-green-600' :
+                watermarkData.message.length > 12 ? 'text-yellow-600' :
+                  'text-gray-500'
+                }`}>
                 {watermarkData.message.length}/16
               </div>
             </div>
           </div>
-          
+
           {/* 密钥输入区域 */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">AES-GCM 加密密钥</label>
@@ -1296,7 +1440,7 @@ export default function PgvectorPage() {
               </div>
             </div>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <ModernInput
               label="嵌入率"
@@ -1314,7 +1458,7 @@ export default function PgvectorPage() {
               placeholder="留空将自动生成"
             />
           </div>
-          
+
           <ModernButton
             onClick={handleEmbedWatermark}
             loading={isEmbedding}
@@ -1323,7 +1467,7 @@ export default function PgvectorPage() {
           >
             {isEmbedding ? '嵌入中...' : '嵌入水印'}
           </ModernButton>
-          
+
           {embedResult && (
             <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
               <div className="flex items-start">
@@ -1333,7 +1477,7 @@ export default function PgvectorPage() {
                 <div className="flex-1">
                   <h4 className="font-medium text-green-800 mb-1">嵌入结果</h4>
                   <p className="text-green-700 text-sm whitespace-pre-line">{embedResult}</p>
-                  
+
                   {/* 添加复制nonce的按钮 */}
                   {lastNonce && (
                     <div className="mt-4 flex gap-2">
@@ -1351,13 +1495,13 @@ export default function PgvectorPage() {
                         </svg>
                         复制nonce
                       </ModernButton>
-                      
+
                       <ModernButton
                         onClick={() => {
                           const element = document.createElement('a');
-                          const file = new Blob([lastNonce], {type: 'text/plain'});
+                          const file = new Blob([lastNonce], { type: 'text/plain' });
                           element.href = URL.createObjectURL(file);
-                          element.download = `pgvector_watermark_nonce_${new Date().toISOString().slice(0,10)}.txt`;
+                          element.download = `pgvector_watermark_nonce_${new Date().toISOString().slice(0, 10)}.txt`;
                           document.body.appendChild(element);
                           element.click();
                           document.body.removeChild(element);
@@ -1473,7 +1617,7 @@ export default function PgvectorPage() {
               </div>
             </div>
           </div>
-          
+
           {/* Nonce输入区域 */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">随机数种子 (Nonce)</label>
@@ -1570,7 +1714,7 @@ export default function PgvectorPage() {
               </div>
             </div>
           </div>
-          
+
           <ModernButton
             onClick={handleExtractWatermark}
             loading={isExtracting}
@@ -1580,7 +1724,7 @@ export default function PgvectorPage() {
           >
             {isExtracting ? '提取中...' : '提取水印'}
           </ModernButton>
-          
+
           {extractResult && (
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
               <p className="text-blue-700">
@@ -1626,7 +1770,7 @@ export default function PgvectorPage() {
                 </button>
               </div>
             </div>
-            
+
             {isProcessingVisualization ? (
               <div className="text-center py-8">
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
@@ -1667,28 +1811,28 @@ export default function PgvectorPage() {
 
                 {/* 图表容器 */}
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div 
+                  <div
                     ref={chartRef}
                     onMouseDown={handleMouseDown}
-                    style={{ 
-                      height: '350px', 
-                      cursor: zoomLevel > 1 ? 'grab' : 'default' 
+                    style={{
+                      height: '350px',
+                      cursor: zoomLevel > 1 ? 'grab' : 'default'
                     }}
                   >
                     <ResponsiveContainer width="100%" height={350}>
                       <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                        <XAxis 
-                          type="number" 
-                          dataKey="x" 
-                          name="X" 
+                        <XAxis
+                          type="number"
+                          dataKey="x"
+                          name="X"
                           domain={zoomDomain ? zoomDomain.x : initialDomain.x}
                           allowDataOverflow
                         />
-                        <YAxis 
-                          type="number" 
-                          dataKey="y" 
-                          name="Y" 
+                        <YAxis
+                          type="number"
+                          dataKey="y"
+                          name="Y"
                           domain={zoomDomain ? zoomDomain.y : initialDomain.y}
                           allowDataOverflow
                         />
@@ -1703,7 +1847,7 @@ export default function PgvectorPage() {
                           }
                           return null;
                         }} />
-                        <Legend 
+                        <Legend
                           content={(props) => {
                             const { payload } = props;
                             return (
@@ -1713,13 +1857,13 @@ export default function PgvectorPage() {
                                   return (
                                     <div key={index} className="flex items-center space-x-2">
                                       {isOriginal ? (
-                                        <div className="w-3 h-3 rounded-full" style={{backgroundColor: '#8884d8', border: '1px solid #6b67af'}}></div>
+                                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#8884d8', border: '1px solid #6b67af' }}></div>
                                       ) : (
                                         <svg width="12" height="12" viewBox="0 0 12 12">
-                                          <path 
-                                            d="M1,6 L11,6 M6,1 L6,11" 
-                                            stroke="#4caf7d" 
-                                            strokeWidth="2" 
+                                          <path
+                                            d="M1,6 L11,6 M6,1 L6,11"
+                                            stroke="#4caf7d"
+                                            strokeWidth="2"
                                             fill="none"
                                           />
                                         </svg>
@@ -1732,9 +1876,9 @@ export default function PgvectorPage() {
                             );
                           }}
                         />
-                        <Scatter 
-                          name="原始向量" 
-                          data={visualizationData.original.map((point, i) => ({ x: point[0], y: point[1] }))} 
+                        <Scatter
+                          name="原始向量"
+                          data={visualizationData.original.map((point, i) => ({ x: point[0], y: point[1] }))}
                           fill="#8884d8"
                           shape={(props) => {
                             const { cx, cy } = props;
@@ -1744,18 +1888,18 @@ export default function PgvectorPage() {
                             );
                           }}
                         />
-                        <Scatter 
-                          name="嵌入水印后" 
-                          data={visualizationData.embedded.map((point, i) => ({ x: point[0], y: point[1] }))} 
+                        <Scatter
+                          name="嵌入水印后"
+                          data={visualizationData.embedded.map((point, i) => ({ x: point[0], y: point[1] }))}
                           fill="#4caf7d"
                           shape={(props) => {
                             const { cx, cy } = props;
                             const size = 5;
                             return (
-                              <path 
-                                d={`M${cx-size},${cy} L${cx+size},${cy} M${cx},${cy-size} L${cx},${cy+size}`} 
-                                stroke="#4caf7d" 
-                                strokeWidth={2} 
+                              <path
+                                d={`M${cx - size},${cy} L${cx + size},${cy} M${cx},${cy - size} L${cx},${cy + size}`}
+                                stroke="#4caf7d"
+                                strokeWidth={2}
                                 fill="none"
                               />
                             );
@@ -1777,8 +1921,8 @@ export default function PgvectorPage() {
                   <div className="bg-green-100 p-3 rounded">
                     <div className="text-sm font-medium text-green-800 mb-1">余弦相似度</div>
                     <div className="text-lg font-bold text-green-900">
-                      {visualizationData.avg_cosine_similarity ? 
-                        visualizationData.avg_cosine_similarity.toFixed(5) : 
+                      {visualizationData.avg_cosine_similarity ?
+                        visualizationData.avg_cosine_similarity.toFixed(5) :
                         'N/A'}
                     </div>
                   </div>
@@ -1796,7 +1940,7 @@ export default function PgvectorPage() {
                     统计指标（余弦相似度、欧氏距离）仍基于全部{visualizationData.total_samples}个样本计算。
                   </div>
                 )}
-                
+
                 <div className="mt-3 text-xs text-gray-600">
                   <p>注: 图表使用{visualizationData.method === 'tsne' ? 't-SNE' : 'PCA'}降维算法将高维向量降至2D空间显示。原始向量显示为圆点，水印向量显示为十字。</p>
                   <p className="mt-1">
@@ -1837,7 +1981,7 @@ export default function PgvectorPage() {
           connected={connected}
           modelExists={modelExists}
         />
-        
+
         {/* 主内容区域 */}
         <div className="flex-1 overflow-hidden">
           <div className="h-full overflow-y-auto">
@@ -1853,7 +1997,7 @@ export default function PgvectorPage() {
                       基于向量数据库的智能水印嵌入与提取平台
                     </p>
                   </div>
-                  
+
                   {/* 状态指示器 */}
                   <div className="flex items-center space-x-4">
                     <div className="flex items-center space-x-2">

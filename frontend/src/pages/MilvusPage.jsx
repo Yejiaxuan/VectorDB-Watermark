@@ -249,6 +249,7 @@ export default function MilvusPage() {
   const [isTraining, setIsTraining] = useState(false);
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [trainingResult, setTrainingResult] = useState(null);
+  const [trainingMetrics, setTrainingMetrics] = useState([]);
   
   // 训练参数
   const [trainingParams, setTrainingParams] = useState({
@@ -389,6 +390,8 @@ export default function MilvusPage() {
     try {
       setIsTraining(true);
       setTrainingProgress(0);
+      setTrainingMetrics([]); // 重置训练指标
+      setTrainingResult(null); // 重置训练结果
       
       const dbParams = {
         host: connectionData.host,
@@ -413,6 +416,30 @@ export default function MilvusPage() {
             
             if (status.progress !== undefined) {
               setTrainingProgress(status.progress);
+            }
+            
+            // 更新训练指标历史
+            if (status.metrics && status.current_epoch > 0) {
+              setTrainingMetrics(prev => {
+                const newMetrics = [...prev];
+                const epochData = {
+                  epoch: status.current_epoch,
+                  train_loss: status.metrics.train_loss,
+                  train_ber: status.metrics.train_ber * 100, // 转换为百分比
+                  val_loss: status.metrics.val_loss,
+                  val_ber: status.metrics.val_ber * 100 // 转换为百分比
+                };
+                
+                // 检查是否已存在该epoch的数据，如果存在则更新，否则添加
+                const existingIndex = newMetrics.findIndex(m => m.epoch === status.current_epoch);
+                if (existingIndex >= 0) {
+                  newMetrics[existingIndex] = epochData;
+                } else {
+                  newMetrics.push(epochData);
+                }
+                
+                return newMetrics;
+              });
             }
             
             if (status.status === 'completed') {
@@ -472,6 +499,9 @@ export default function MilvusPage() {
       setSelectedVectorField('');
       setVectorDimension(null);
       setModelExists(false);
+      // 清理训练相关状态
+      setTrainingResult(null);
+      setTrainingMetrics([]);
     }
   }, [connected]);
 
@@ -503,6 +533,9 @@ export default function MilvusPage() {
     } else {
       setVectorFields([]);
       setSelectedVectorField('');
+      // 清理训练相关状态
+      setTrainingResult(null);
+      setTrainingMetrics([]);
     }
   }, [connected, selectedCollection]);
 
@@ -768,7 +801,14 @@ export default function MilvusPage() {
             <label className="block text-sm font-medium text-gray-700 mb-2">选择集合</label>
             <select
               value={selectedCollection}
-              onChange={(e) => setSelectedCollection(e.target.value)}
+              onChange={(e) => {
+                setSelectedCollection(e.target.value);
+                // 清理训练相关状态
+                setTrainingResult(null);
+                setTrainingMetrics([]);
+                setVectorDimension(null);
+                setModelExists(false);
+              }}
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
             >
               <option value="">请选择集合</option>
@@ -783,7 +823,14 @@ export default function MilvusPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">选择向量字段</label>
               <select
                 value={selectedVectorField}
-                onChange={(e) => setSelectedVectorField(e.target.value)}
+                onChange={(e) => {
+                  setSelectedVectorField(e.target.value);
+                  // 清理训练相关状态
+                  setTrainingResult(null);
+                  setTrainingMetrics([]);
+                  setVectorDimension(null);
+                  setModelExists(false);
+                }}
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
               >
                 <option value="">请选择向量字段</option>
@@ -900,23 +947,132 @@ export default function MilvusPage() {
 
         {/* 训练进度 */}
         {isTraining && (
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl border bg-blue-50 border-blue-200">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-blue-700">训练进度</span>
-                <span className="text-sm text-blue-600">{trainingProgress.toFixed(1)}%</span>
+          <div className="p-4 rounded-xl border bg-blue-50 border-blue-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-blue-700">训练进度</span>
+              <span className="text-sm text-blue-600">{trainingProgress.toFixed(1)}%</span>
+            </div>
+            <div className="w-full bg-blue-200 rounded-full h-2">
+              <div 
+                className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${trainingProgress}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
+        
+        {/* 训练性能监控 - 独立显示，训练完成后不消失 */}
+        {trainingMetrics.length > 0 && (
+          <div className="bg-white p-4 rounded-xl border border-gray-200">
+            <h4 className="text-sm font-medium text-gray-700 mb-3">
+              训练性能监控 {isTraining ? '(实时)' : '(历史)'}
+            </h4>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trainingMetrics}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis 
+                    dataKey="epoch" 
+                    stroke="#666"
+                    fontSize={12}
+                    label={{ value: 'Epoch', position: 'insideBottom', offset: -5 }}
+                  />
+                  <YAxis 
+                    stroke="#666"
+                    fontSize={12}
+                    label={{ value: 'Loss', angle: -90, position: 'insideLeft' }}
+                  />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: '#fff',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      fontSize: '12px'
+                    }}
+                    formatter={(value, name) => [
+                      typeof value === 'number' ? value.toFixed(4) : value,
+                      name === 'train_loss' ? '训练损失' :
+                      name === 'val_loss' ? '验证损失' :
+                      name === 'train_ber' ? '训练BER(%)' :
+                      name === 'val_ber' ? '验证BER(%)' : name
+                    ]}
+                    labelFormatter={(epoch) => `Epoch ${epoch}`}
+                  />
+                  <Legend 
+                    formatter={(value) => 
+                      value === 'train_loss' ? '训练损失' :
+                      value === 'val_loss' ? '验证损失' :
+                      value === 'train_ber' ? '训练BER(%)' :
+                      value === 'val_ber' ? '验证BER(%)' : value
+                    }
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="train_loss" 
+                    stroke="#8b5cf6" 
+                    strokeWidth={2}
+                    dot={{ fill: '#8b5cf6', strokeWidth: 2, r: 3 }}
+                    activeDot={{ r: 5, stroke: '#8b5cf6', strokeWidth: 2 }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="val_loss" 
+                    stroke="#ef4444" 
+                    strokeWidth={2}
+                    dot={{ fill: '#ef4444', strokeWidth: 2, r: 3 }}
+                    activeDot={{ r: 5, stroke: '#ef4444', strokeWidth: 2 }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="train_ber" 
+                    stroke="#10b981" 
+                    strokeWidth={2}
+                    dot={{ fill: '#10b981', strokeWidth: 2, r: 3 }}
+                    activeDot={{ r: 5, stroke: '#10b981', strokeWidth: 2 }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="val_ber" 
+                    stroke="#f59e0b" 
+                    strokeWidth={2}
+                    dot={{ fill: '#f59e0b', strokeWidth: 2, r: 3 }}
+                    activeDot={{ r: 5, stroke: '#f59e0b', strokeWidth: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            
+            {/* 当前指标显示 */}
+            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
+                <div className="text-xs text-purple-600">训练损失</div>
+                <div className="text-sm font-bold text-purple-700">
+                  {trainingMetrics[trainingMetrics.length - 1]?.train_loss?.toFixed(4) || 'N/A'}
+                </div>
               </div>
-              <div className="w-full bg-blue-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${trainingProgress}%` }}
-                ></div>
+              <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                <div className="text-xs text-red-600">验证损失</div>
+                <div className="text-sm font-bold text-red-700">
+                  {trainingMetrics[trainingMetrics.length - 1]?.val_loss?.toFixed(4) || 'N/A'}
+                </div>
+              </div>
+              <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                <div className="text-xs text-green-600">训练BER</div>
+                <div className="text-sm font-bold text-green-700">
+                  {trainingMetrics[trainingMetrics.length - 1]?.train_ber?.toFixed(2) || 'N/A'}%
+                </div>
+              </div>
+              <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                <div className="text-xs text-yellow-600">验证BER</div>
+                <div className="text-sm font-bold text-yellow-700">
+                  {trainingMetrics[trainingMetrics.length - 1]?.val_ber?.toFixed(2) || 'N/A'}%
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* 训练结果 */}
+        {/* 训练结果 - 独立显示，不受modelExists条件限制 */}
         {trainingResult && (
           <div className="p-6 rounded-xl border bg-green-50 border-green-200">
             <div className="flex items-center mb-4">
