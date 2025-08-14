@@ -1572,7 +1572,33 @@ export default function MilvusPage() {
                     />
                     <Legend 
                       wrapperStyle={{ paddingTop: '20px' }}
-                      iconType="circle"
+                      content={(props) => {
+                        const { payload } = props;
+                        return (
+                          <div className="flex justify-center space-x-6 pt-4">
+                            {payload.map((entry, index) => {
+                              const isOriginal = entry.value === '原始向量';
+                              return (
+                                <div key={index} className="flex items-center space-x-2">
+                                  {isOriginal ? (
+                                    <div className="w-3 h-3 rounded-full" style={{backgroundColor: '#8884d8', border: '1px solid #6b67af'}}></div>
+                                  ) : (
+                                    <svg width="12" height="12" viewBox="0 0 12 12">
+                                      <path 
+                                        d="M1,6 L11,6 M6,1 L6,11" 
+                                        stroke="#4caf7d" 
+                                        strokeWidth="2" 
+                                        fill="none"
+                                      />
+                                    </svg>
+                                  )}
+                                  <span className="text-sm text-gray-700">{entry.value}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }}
                     />
                     
                     {/* 原始向量 */}
@@ -1584,7 +1610,7 @@ export default function MilvusPage() {
                         type: '原始向量',
                         index
                       })) : []}
-                      fill="#3b82f6"
+                      fill="#8884d8"
                       shape={(props) => {
                         const { cx, cy } = props;
                         const size = 4;
@@ -1603,7 +1629,7 @@ export default function MilvusPage() {
                         type: '嵌入水印后向量',
                         index
                       })) : []}
-                      fill="#ef4444"
+                      fill="#4caf7d"
                       shape={(props) => {
                         const { cx, cy } = props;
                         const size = 5;
@@ -1652,7 +1678,7 @@ export default function MilvusPage() {
                     <p className="font-medium mb-1">可视化说明：</p>
                     <ul className="space-y-1 text-xs">
                       <li>• 蓝色圆点表示原始向量在降维后的位置</li>
-                      <li>• 红色三角表示嵌入水印后向量在降维后的位置</li>
+                      <li>• 绿色十字表示嵌入水印后向量在降维后的位置</li>
                       <li>• 使用t-SNE/PCA算法将高维向量降维到2D平面进行可视化</li>
                       <li>• 为提高性能，显示的是采样后的向量子集</li>
                     </ul>

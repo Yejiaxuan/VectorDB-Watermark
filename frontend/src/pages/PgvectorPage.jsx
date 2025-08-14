@@ -1703,7 +1703,35 @@ export default function PgvectorPage() {
                           }
                           return null;
                         }} />
-                        <Legend />
+                        <Legend 
+                          content={(props) => {
+                            const { payload } = props;
+                            return (
+                              <div className="flex justify-center space-x-6 pt-4">
+                                {payload.map((entry, index) => {
+                                  const isOriginal = entry.value === '原始向量';
+                                  return (
+                                    <div key={index} className="flex items-center space-x-2">
+                                      {isOriginal ? (
+                                        <div className="w-3 h-3 rounded-full" style={{backgroundColor: '#8884d8', border: '1px solid #6b67af'}}></div>
+                                      ) : (
+                                        <svg width="12" height="12" viewBox="0 0 12 12">
+                                          <path 
+                                            d="M1,6 L11,6 M6,1 L6,11" 
+                                            stroke="#4caf7d" 
+                                            strokeWidth="2" 
+                                            fill="none"
+                                          />
+                                        </svg>
+                                      )}
+                                      <span className="text-sm text-gray-700">{entry.value}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          }}
+                        />
                         <Scatter 
                           name="原始向量" 
                           data={visualizationData.original.map((point, i) => ({ x: point[0], y: point[1] }))} 
@@ -1719,7 +1747,7 @@ export default function PgvectorPage() {
                         <Scatter 
                           name="嵌入水印后" 
                           data={visualizationData.embedded.map((point, i) => ({ x: point[0], y: point[1] }))} 
-                          fill="#82ca9d"
+                          fill="#4caf7d"
                           shape={(props) => {
                             const { cx, cy } = props;
                             const size = 5;
