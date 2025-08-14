@@ -285,6 +285,9 @@ export default function MilvusPage() {
   // 可视化
   const [visualizationData, setVisualizationData] = useState(null);
   const [isVisualizing, setIsVisualizing] = useState(false);
+  const [initialDomain, setInitialDomain] = useState(null);
+  const [currentDomain, setCurrentDomain] = useState(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
   
   // Toast通知
   const [toasts, setToasts] = useState([]);
@@ -548,6 +551,48 @@ export default function MilvusPage() {
           setLastEmbedRate(watermarkData.embedRate);
         }
         
+        // 直接使用后端返回的可视化数据
+        if (result.visualization_data) {
+          console.log("收到的可视化数据:", result.visualization_data);
+          
+          // 直接使用已处理好的可视化数据
+          setVisualizationData(result.visualization_data);
+          
+          // 计算初始域范围
+          const calculateInitialDomain = (data) => {
+            if (!data || !data.original || !data.embedded) return { x: [-50, 50], y: [-50, 50] };
+            
+            // 合并所有点
+            const allPoints = [
+              ...data.original.map(point => ({ x: point[0], y: point[1] })),
+              ...data.embedded.map(point => ({ x: point[0], y: point[1] }))
+            ];
+            
+            // 计算最小和最大值并添加一些边距
+            const xValues = allPoints.map(p => p.x);
+            const yValues = allPoints.map(p => p.y);
+            
+            const minX = Math.floor(Math.min(...xValues));
+            const maxX = Math.ceil(Math.max(...xValues));
+            const minY = Math.floor(Math.min(...yValues));
+            const maxY = Math.ceil(Math.max(...yValues));
+            
+            // 添加边距
+            const padding = 5;
+            return {
+              x: [minX - padding, maxX + padding],
+              y: [minY - padding, maxY + padding]
+            };
+          };
+          
+          setInitialDomain(calculateInitialDomain(result.visualization_data));
+          setCurrentDomain(null);
+          setZoomLevel(1);
+          
+          // 自动切换到可视化页面
+          setActiveSection('visualization');
+        }
+        
         setEmbedResult(`${result.message}\n\n💡 提示：提取水印时请使用相同的嵌入率 ${(watermarkData.embedRate * 100).toFixed(1)}% 和相同的解密密钥以确保正确提取。\n\n⚠️ 重要：请保存以下nonce值，提取水印时需要：\n${result.nonce}`);
         showToast(`水印嵌入成功！使用了 ${(watermarkData.embedRate * 100).toFixed(1)}% 的嵌入率`, 'success');
       } else {
@@ -614,35 +659,7 @@ export default function MilvusPage() {
     }
   };
   
-  // 处理可视化
-  const handleVisualization = async () => {
-    if (!connected || !selectedCollection || !selectedVectorField) {
-      showToast('请先连接数据库并选择集合和向量字段', 'error');
-      return;
-    }
-    
-    setIsVisualizing(true);
-    setVisualizationData(null);
-    
-    try {
-      const dbParams = {
-        host: connectionData.host,
-        port: connectionData.port
-      };
-      const result = await generateMilvusVisualization(dbParams, selectedCollection, selectedVectorField);
-      
-      if (result.success) {
-        setVisualizationData(result.data);
-        showToast('可视化生成成功！', 'success');
-      } else {
-        showToast(`可视化生成失败：${result.error}`, 'error');
-      }
-    } catch (error) {
-      showToast(`可视化生成失败：${error.message}`, 'error');
-    } finally {
-      setIsVisualizing(false);
-    }
-  };
+
 
 
 
@@ -1404,46 +1421,250 @@ export default function MilvusPage() {
     </div>
   );
 
-  // 渲染可视化部分
-  const renderVisualizationSection = () => (
-    <ModernCard>
-      {/* 数据可视化标题和图标 */}
-      <div className="text-center mb-6">
-        <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-        </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">数据可视化</h2>
-        <p className="text-gray-600">生成向量数据的可视化图表</p>
-      </div>
+  // 计算统计信息
+  const calculateStats = (data) => {
+    if (!data || !data.original || !data.embedded || data.original.length === 0) return null;
+    
+    let totalDistance = 0;
+    let totalSimilarity = 0;
+    const sampleCount = Math.min(data.original.length, data.embedded.length);
+    
+    for (let i = 0; i < sampleCount; i++) {
+      const original = data.original[i];
+      const embedded = data.embedded[i];
+      
+      // 计算欧几里得距离
+      const distance = Math.sqrt(
+        Math.pow(embedded[0] - original[0], 2) + 
+        Math.pow(embedded[1] - original[1], 2)
+      );
+      totalDistance += distance;
+      
+      // 计算余弦相似度
+      const dotProduct = original[0] * embedded[0] + original[1] * embedded[1];
+      const magnitudeA = Math.sqrt(original[0] * original[0] + original[1] * original[1]);
+      const magnitudeB = Math.sqrt(embedded[0] * embedded[0] + embedded[1] * embedded[1]);
+      const similarity = dotProduct / (magnitudeA * magnitudeB);
+      totalSimilarity += similarity;
+    }
+    
+    return {
+      avgDistance: (totalDistance / sampleCount).toFixed(4),
+      avgSimilarity: (totalSimilarity / sampleCount).toFixed(4),
+      sampleCount: sampleCount
+    };
+  };
 
-      <div className="space-y-6">
-        <ModernButton
-          onClick={handleVisualization}
-          loading={isVisualizing}
-          disabled={isVisualizing || !connected || !selectedCollection || !selectedVectorField}
-          className="w-full"
-        >
-          {isVisualizing ? '生成中...' : '生成可视化'}
-        </ModernButton>
-        
-        {visualizationData && (
-          <div className="h-96 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart data={visualizationData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="x" />
-                <YAxis dataKey="y" />
-                <Tooltip />
-                <Scatter dataKey="y" fill="#14b8a6" />
-              </ScatterChart>
-            </ResponsiveContainer>
+  // 处理缩放
+  const handleZoom = (direction) => {
+    if (!initialDomain) return;
+    
+    const factor = direction === 'in' ? 0.8 : 1.25;
+    const newZoomLevel = Math.max(0.1, Math.min(10, zoomLevel * factor));
+    setZoomLevel(newZoomLevel);
+    
+    const centerX = (initialDomain.x[0] + initialDomain.x[1]) / 2;
+    const centerY = (initialDomain.y[0] + initialDomain.y[1]) / 2;
+    const rangeX = (initialDomain.x[1] - initialDomain.x[0]) / newZoomLevel;
+    const rangeY = (initialDomain.y[1] - initialDomain.y[0]) / newZoomLevel;
+    
+    setCurrentDomain({
+      x: [centerX - rangeX / 2, centerX + rangeX / 2],
+      y: [centerY - rangeY / 2, centerY + rangeY / 2]
+    });
+  };
+
+  // 重置缩放
+  const resetZoom = () => {
+    if (!initialDomain) return;
+    setZoomLevel(1);
+    setCurrentDomain(initialDomain);
+  };
+
+  // 渲染可视化部分
+  const renderVisualizationSection = () => {
+    const stats = calculateStats(visualizationData);
+    
+    return (
+      <ModernCard>
+        {/* 数据可视化标题和图标 */}
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
           </div>
-        )}
-      </div>
-    </ModernCard>
-  );
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">向量分布可视化</h2>
+          <p className="text-gray-600">显示原始向量与嵌入水印后向量的分布对比</p>
+        </div>
+
+        <div className="space-y-6">
+          {visualizationData && (
+            <div className="space-y-6">
+              {/* 缩放控制 */}
+              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl">
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-medium text-gray-700">缩放控制:</span>
+                  <button
+                    onClick={() => handleZoom('in')}
+                    className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    title="放大"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={() => handleZoom('out')}
+                    className="p-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    title="缩小"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12H6" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={resetZoom}
+                    className="px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                  >
+                    重置
+                  </button>
+                </div>
+                <div className="text-sm text-gray-600">
+                  缩放级别: {zoomLevel.toFixed(1)}x
+                </div>
+              </div>
+
+              {/* 可视化图表 */}
+              <div className="h-96 w-full border border-gray-200 rounded-xl p-4 bg-white">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ScatterChart>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis 
+                      type="number" 
+                      dataKey="x" 
+                      domain={currentDomain ? currentDomain.x : ['dataMin', 'dataMax']}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <YAxis 
+                      type="number" 
+                      dataKey="y" 
+                      domain={currentDomain ? currentDomain.y : ['dataMin', 'dataMax']}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-white p-3 border border-gray-300 rounded-lg shadow-lg">
+                              <p className="font-medium text-gray-900">{data.type}</p>
+                              <p className="text-sm text-gray-600">X: {data.x.toFixed(4)}</p>
+                              <p className="text-sm text-gray-600">Y: {data.y.toFixed(4)}</p>
+                              {data.index !== undefined && (
+                                <p className="text-sm text-gray-600">索引: {data.index}</p>
+                              )}
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend 
+                      wrapperStyle={{ paddingTop: '20px' }}
+                      iconType="circle"
+                    />
+                    
+                    {/* 原始向量 */}
+                    <Scatter
+                      name="原始向量"
+                      data={visualizationData.original ? visualizationData.original.map((point, index) => ({
+                        x: point[0],
+                        y: point[1],
+                        type: '原始向量',
+                        index
+                      })) : []}
+                      fill="#3b82f6"
+                      shape={(props) => {
+                        const { cx, cy } = props;
+                        const size = 4;
+                        return (
+                          <circle cx={cx} cy={cy} r={size} fill="#8884d8" stroke="#6b67af" strokeWidth={1} />
+                        );
+                      }}
+                    />
+                    
+                    {/* 嵌入水印后的向量 */}
+                    <Scatter
+                      name="嵌入水印后向量"
+                      data={visualizationData.embedded ? visualizationData.embedded.map((point, index) => ({
+                        x: point[0],
+                        y: point[1],
+                        type: '嵌入水印后向量',
+                        index
+                      })) : []}
+                      fill="#ef4444"
+                      shape={(props) => {
+                        const { cx, cy } = props;
+                        const size = 5;
+                        return (
+                          <path 
+                            d={`M${cx-size},${cy} L${cx+size},${cy} M${cx},${cy-size} L${cx},${cy+size}`} 
+                            stroke="#4caf7d" 
+                            strokeWidth={2} 
+                            fill="none"
+                          />
+                        );
+                      }}
+                    />
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* 统计信息 */}
+              {stats && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                    <div className="text-sm font-medium text-blue-800 mb-1">平均欧几里得距离</div>
+                    <div className="text-2xl font-bold text-blue-900">{stats.avgDistance}</div>
+                    <div className="text-xs text-blue-600 mt-1">向量变化程度</div>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-xl border border-green-200">
+                    <div className="text-sm font-medium text-green-800 mb-1">平均余弦相似度</div>
+                    <div className="text-2xl font-bold text-green-900">{stats.avgSimilarity}</div>
+                    <div className="text-xs text-green-600 mt-1">向量相似性</div>
+                  </div>
+                  <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
+                    <div className="text-sm font-medium text-purple-800 mb-1">样本数量</div>
+                    <div className="text-2xl font-bold text-purple-900">{stats.sampleCount}</div>
+                    <div className="text-xs text-purple-600 mt-1">可视化点数</div>
+                  </div>
+                </div>
+              )}
+
+              {/* 说明信息 */}
+              <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
+                <div className="flex items-start">
+                  <svg className="w-5 h-5 text-amber-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="text-sm text-amber-800">
+                    <p className="font-medium mb-1">可视化说明：</p>
+                    <ul className="space-y-1 text-xs">
+                      <li>• 蓝色圆点表示原始向量在降维后的位置</li>
+                      <li>• 红色三角表示嵌入水印后向量在降维后的位置</li>
+                      <li>• 使用t-SNE/PCA算法将高维向量降维到2D平面进行可视化</li>
+                      <li>• 为提高性能，显示的是采样后的向量子集</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </ModernCard>
+    );
+  };
 
   // 渲染主要内容
   const renderMainContent = () => {

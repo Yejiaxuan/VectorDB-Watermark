@@ -286,8 +286,23 @@ export default function PgvectorPage() {
   const [embedResult, setEmbedResult] = useState('');
   const [extractResult, setExtractResult] = useState('');
   
-  // 可视化
+  // 可视化相关状态
   const [visualizationData, setVisualizationData] = useState(null);
+  const [isProcessingVisualization, setIsProcessingVisualization] = useState(false);
+  const [visualizationProgress, setVisualizationProgress] = useState(0);
+  const [estimatedTime, setEstimatedTime] = useState(null);
+  const [visualizationPollingId, setVisualizationPollingId] = useState(null);
+  const [processingVectorsCount, setProcessingVectorsCount] = useState(0);
+
+  // 缩放相关状态
+  const [zoomDomain, setZoomDomain] = useState(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [initialDomain, setInitialDomain] = useState({ x: [-50, 50], y: [-50, 50] });
+
+  // 拖拽状态
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const chartRef = useRef(null);
   const [isVisualizing, setIsVisualizing] = useState(false);
   
   // Toast通知
@@ -522,6 +537,16 @@ export default function PgvectorPage() {
       if (response.success) {
         setLastEmbedRate(watermarkData.embedRate);
         
+        // 直接使用后端返回的可视化数据
+        if (response.visualization_data) {
+          console.log("收到的可视化数据:", response.visualization_data);
+          
+          // 直接使用已处理好的可视化数据
+          setVisualizationData(response.visualization_data);
+          setInitialDomain(calculateInitialDomain(response.visualization_data));
+          setIsVisualizing(false);
+        }
+        
         // 保存返回的nonce
         if (response.nonce) {
           setLastNonce(response.nonce);
@@ -590,6 +615,124 @@ export default function PgvectorPage() {
     }
   };
 
+  // 计算初始域范围
+  const calculateInitialDomain = (data) => {
+    if (!data || !data.original || !data.embedded) return { x: [-50, 50], y: [-50, 50] };
+    
+    // 合并所有点
+    const allPoints = [
+      ...data.original.map(point => ({ x: point[0], y: point[1] })),
+      ...data.embedded.map(point => ({ x: point[0], y: point[1] }))
+    ];
+    
+    // 计算最小和最大值并添加一些边距
+    const xValues = allPoints.map(p => p.x);
+    const yValues = allPoints.map(p => p.y);
+    
+    const minX = Math.floor(Math.min(...xValues));
+    const maxX = Math.ceil(Math.max(...xValues));
+    const minY = Math.floor(Math.min(...yValues));
+    const maxY = Math.ceil(Math.max(...yValues));
+    
+    // 添加边距
+    const padding = 5;
+    return {
+      x: [minX - padding, maxX + padding],
+      y: [minY - padding, maxY + padding]
+    };
+  };
+
+  // 重置缩放
+  const resetZoom = () => {
+    setZoomDomain(null);
+    setZoomLevel(1);
+  };
+
+  // 放大
+  const zoomIn = () => {
+    setZoomLevel(prev => {
+      const newLevel = prev + 0.5;
+      const currentDomain = zoomDomain || initialDomain;
+      const centerX = (currentDomain.x[0] + currentDomain.x[1]) / 2;
+      const centerY = (currentDomain.y[0] + currentDomain.y[1]) / 2;
+      const rangeX = currentDomain.x[1] - currentDomain.x[0];
+      const rangeY = currentDomain.y[1] - currentDomain.y[0];
+      
+      const newRangeX = rangeX / (newLevel / prev);
+      const newRangeY = rangeY / (newLevel / prev);
+      
+      setZoomDomain({
+        x: [centerX - newRangeX / 2, centerX + newRangeX / 2],
+        y: [centerY - newRangeY / 2, centerY + newRangeY / 2]
+      });
+      
+      return newLevel;
+    });
+  };
+
+  // 缩小
+  const zoomOut = () => {
+    setZoomLevel(prev => {
+      const newLevel = Math.max(1, prev - 0.5);
+      if (newLevel === 1) {
+        setZoomDomain(null);
+        return 1;
+      }
+      
+      const currentDomain = zoomDomain || initialDomain;
+      const centerX = (currentDomain.x[0] + currentDomain.x[1]) / 2;
+      const centerY = (currentDomain.y[0] + currentDomain.y[1]) / 2;
+      const rangeX = currentDomain.x[1] - currentDomain.x[0];
+      const rangeY = currentDomain.y[1] - currentDomain.y[0];
+      
+      const newRangeX = rangeX / (newLevel / prev);
+      const newRangeY = rangeY / (newLevel / prev);
+      
+      setZoomDomain({
+        x: [centerX - newRangeX / 2, centerX + newRangeX / 2],
+        y: [centerY - newRangeY / 2, centerY + newRangeY / 2]
+      });
+      
+      return newLevel;
+    });
+  };
+
+  // 鼠标按下开始拖拽
+  const handleMouseDown = (e) => {
+    if (zoomLevel > 1) {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
+  };
+
+  // 鼠标移动拖拽
+  const handleMouseMove = (e) => {
+    if (!isDragging || !zoomDomain) return;
+    
+    const deltaX = e.clientX - dragStart.x;
+    const deltaY = e.clientY - dragStart.y;
+    
+    const rangeX = zoomDomain.x[1] - zoomDomain.x[0];
+    const rangeY = zoomDomain.y[1] - zoomDomain.y[0];
+    
+    // 根据图表大小调整移动速度
+    const moveFactorX = rangeX / 400; // 假设图表宽度为400px
+    const moveFactorY = rangeY / 350; // 假设图表高度为350px
+    
+    const newDomain = {
+      x: [zoomDomain.x[0] - deltaX * moveFactorX, zoomDomain.x[1] - deltaX * moveFactorX],
+      y: [zoomDomain.y[0] + deltaY * moveFactorY, zoomDomain.y[1] + deltaY * moveFactorY]
+    };
+    
+    setZoomDomain(newDomain);
+    setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  // 鼠标抬起结束拖拽
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
   // 生成可视化
   const handleVisualize = async () => {
     if (!selectedTable || !selectedColumn) {
@@ -614,6 +757,36 @@ export default function PgvectorPage() {
       setIsVisualizing(false);
     }
   };
+
+  // 添加拖拽事件监听
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, zoomDomain]);
+
+  // 当可视化数据变化时，计算初始域
+  useEffect(() => {
+    if (visualizationData) {
+      setInitialDomain(calculateInitialDomain(visualizationData));
+      resetZoom();
+    }
+  }, [visualizationData]);
+
+  // 清理轮询
+  useEffect(() => {
+    return () => {
+      if (visualizationPollingId) {
+        clearInterval(visualizationPollingId);
+      }
+    };
+  }, [visualizationPollingId]);
 
   // 监听表和列的变化
   useEffect(() => {
@@ -1435,26 +1608,176 @@ export default function PgvectorPage() {
       </div>
 
       <div className="space-y-6">
-        <ModernButton
-          onClick={handleVisualize}
-          loading={isVisualizing}
-          disabled={isVisualizing || !selectedTable || !selectedColumn}
-          className="w-full"
-        >
-          {isVisualizing ? '生成中...' : '生成可视化'}
-        </ModernButton>
-        
-        {visualizationData && (
-          <div className="h-96 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart data={visualizationData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="x" />
-                <YAxis dataKey="y" />
-                <Tooltip />
-                <Scatter dataKey="y" fill="#14b8a6" />
-              </ScatterChart>
-            </ResponsiveContainer>
+        {(isProcessingVisualization || visualizationData) && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">向量可视化</h3>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => {
+                    if (visualizationData) {
+                      setVisualizationData(null);
+                    }
+                  }}
+                  disabled={isProcessingVisualization || !visualizationData}
+                  className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  清除
+                </button>
+              </div>
+            </div>
+            
+            {isProcessingVisualization ? (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+                <p className="text-gray-600">正在生成可视化...</p>
+              </div>
+            ) : visualizationData && (
+              <div className="space-y-4">
+                {/* 缩放控制 */}
+                <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-600">缩放控制:</span>
+                    <button
+                      onClick={zoomOut}
+                      disabled={zoomLevel <= 1}
+                      className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      缩小
+                    </button>
+                    <span className="text-xs text-gray-500">{zoomLevel.toFixed(1)}x</span>
+                    <button
+                      onClick={zoomIn}
+                      className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                    >
+                      放大
+                    </button>
+                    <button
+                      onClick={resetZoom}
+                      disabled={zoomLevel === 1}
+                      className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      重置
+                    </button>
+                  </div>
+                  {zoomLevel > 1 && (
+                    <span className="text-xs text-gray-500">拖拽图表可移动视图</span>
+                  )}
+                </div>
+
+                {/* 图表容器 */}
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div 
+                    ref={chartRef}
+                    onMouseDown={handleMouseDown}
+                    style={{ 
+                      height: '350px', 
+                      cursor: zoomLevel > 1 ? 'grab' : 'default' 
+                    }}
+                  >
+                    <ResponsiveContainer width="100%" height={350}>
+                      <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                        <XAxis 
+                          type="number" 
+                          dataKey="x" 
+                          name="X" 
+                          domain={zoomDomain ? zoomDomain.x : initialDomain.x}
+                          allowDataOverflow
+                        />
+                        <YAxis 
+                          type="number" 
+                          dataKey="y" 
+                          name="Y" 
+                          domain={zoomDomain ? zoomDomain.y : initialDomain.y}
+                          allowDataOverflow
+                        />
+                        <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            return (
+                              <div className="bg-white p-2 border border-gray-200 shadow-sm rounded text-xs">
+                                <p>X: {payload[0].value.toFixed(3)}</p>
+                                <p>Y: {payload[1].value.toFixed(3)}</p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }} />
+                        <Legend />
+                        <Scatter 
+                          name="原始向量" 
+                          data={visualizationData.original.map((point, i) => ({ x: point[0], y: point[1] }))} 
+                          fill="#8884d8"
+                          shape={(props) => {
+                            const { cx, cy } = props;
+                            const size = 5;
+                            return (
+                              <circle cx={cx} cy={cy} r={size} fill="#8884d8" stroke="#6b67af" strokeWidth={1} />
+                            );
+                          }}
+                        />
+                        <Scatter 
+                          name="嵌入水印后" 
+                          data={visualizationData.embedded.map((point, i) => ({ x: point[0], y: point[1] }))} 
+                          fill="#82ca9d"
+                          shape={(props) => {
+                            const { cx, cy } = props;
+                            const size = 5;
+                            return (
+                              <path 
+                                d={`M${cx-size},${cy} L${cx+size},${cy} M${cx},${cy-size} L${cx},${cy+size}`} 
+                                stroke="#4caf7d" 
+                                strokeWidth={2} 
+                                fill="none"
+                              />
+                            );
+                          }}
+                        />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* 统计信息 */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-blue-100 p-3 rounded">
+                    <div className="text-sm font-medium text-blue-800 mb-1">平均欧氏距离</div>
+                    <div className="text-lg font-bold text-blue-900">
+                      {visualizationData.avg_distance.toFixed(5)}
+                    </div>
+                  </div>
+                  <div className="bg-green-100 p-3 rounded">
+                    <div className="text-sm font-medium text-green-800 mb-1">余弦相似度</div>
+                    <div className="text-lg font-bold text-green-900">
+                      {visualizationData.avg_cosine_similarity ? 
+                        visualizationData.avg_cosine_similarity.toFixed(5) : 
+                        'N/A'}
+                    </div>
+                  </div>
+                  <div className="bg-purple-100 p-3 rounded">
+                    <div className="text-sm font-medium text-purple-800 mb-1">样本数量</div>
+                    <div className="text-lg font-bold text-purple-900">
+                      {visualizationData.n_samples}
+                    </div>
+                  </div>
+                </div>
+
+                {visualizationData.sampled && (
+                  <div className="mt-2 text-xs text-gray-600 bg-blue-50 p-2 rounded">
+                    <span className="font-medium">注:</span> 为提高性能，当前图表显示从{visualizationData.total_samples}个样本中随机选择的{visualizationData.n_samples}个样本。
+                    统计指标（余弦相似度、欧氏距离）仍基于全部{visualizationData.total_samples}个样本计算。
+                  </div>
+                )}
+                
+                <div className="mt-3 text-xs text-gray-600">
+                  <p>注: 图表使用{visualizationData.method === 'tsne' ? 't-SNE' : 'PCA'}降维算法将高维向量降至2D空间显示。原始向量显示为圆点，水印向量显示为十字。</p>
+                  <p className="mt-1">
+                    <span className="font-medium">余弦相似度:</span> 值越接近1表示水印嵌入前后向量方向变化越小；
+                    <span className="font-medium ml-2">欧氏距离:</span> 值越小表示水印嵌入前后向量位置变化越小。
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
