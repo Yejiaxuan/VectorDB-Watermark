@@ -424,9 +424,9 @@ export default function MilvusPage() {
                 const newMetrics = [...prev];
                 const epochData = {
                   epoch: status.current_epoch,
-                  train_loss: status.metrics.train_loss,
+                  train_loss: status.metrics.train_loss * 100, // 转换为百分比
                   train_ber: status.metrics.train_ber * 100, // 转换为百分比
-                  val_loss: status.metrics.val_loss,
+                  val_loss: status.metrics.val_loss * 100, // 转换为百分比
                   val_ber: status.metrics.val_ber * 100 // 转换为百分比
                 };
                 
@@ -980,7 +980,7 @@ export default function MilvusPage() {
                   <YAxis 
                     stroke="#666"
                     fontSize={12}
-                    label={{ value: 'Loss', angle: -90, position: 'insideLeft' }}
+                    label={{ value: '百分比 (%)', angle: -90, position: 'insideLeft' }}
                   />
                   <Tooltip 
                     contentStyle={{
@@ -990,9 +990,9 @@ export default function MilvusPage() {
                       fontSize: '12px'
                     }}
                     formatter={(value, name) => [
-                      typeof value === 'number' ? value.toFixed(4) : value,
-                      name === 'train_loss' ? '训练损失' :
-                      name === 'val_loss' ? '验证损失' :
+                      typeof value === 'number' ? `${value.toFixed(2)}%` : value,
+                      name === 'train_loss' ? '训练损失(%)' :
+                      name === 'val_loss' ? '验证损失(%)' :
                       name === 'train_ber' ? '训练BER(%)' :
                       name === 'val_ber' ? '验证BER(%)' : name
                     ]}
@@ -1000,8 +1000,8 @@ export default function MilvusPage() {
                   />
                   <Legend 
                     formatter={(value) => 
-                      value === 'train_loss' ? '训练损失' :
-                      value === 'val_loss' ? '验证损失' :
+                      value === 'train_loss' ? '训练损失(%)' :
+                      value === 'val_loss' ? '验证损失(%)' :
                       value === 'train_ber' ? '训练BER(%)' :
                       value === 'val_ber' ? '验证BER(%)' : value
                     }
@@ -1045,25 +1045,25 @@ export default function MilvusPage() {
             {/* 当前指标显示 */}
             <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
-                <div className="text-xs text-purple-600">训练损失</div>
+                <div className="text-xs text-purple-600">训练损失(%)</div>
                 <div className="text-sm font-bold text-purple-700">
-                  {trainingMetrics[trainingMetrics.length - 1]?.train_loss?.toFixed(4) || 'N/A'}
+                  {trainingMetrics[trainingMetrics.length - 1]?.train_loss?.toFixed(2) || 'N/A'}%
                 </div>
               </div>
               <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                <div className="text-xs text-red-600">验证损失</div>
+                <div className="text-xs text-red-600">验证损失(%)</div>
                 <div className="text-sm font-bold text-red-700">
-                  {trainingMetrics[trainingMetrics.length - 1]?.val_loss?.toFixed(4) || 'N/A'}
+                  {trainingMetrics[trainingMetrics.length - 1]?.val_loss?.toFixed(2) || 'N/A'}%
                 </div>
               </div>
               <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                <div className="text-xs text-green-600">训练BER</div>
+                <div className="text-xs text-green-600">训练BER(%)</div>
                 <div className="text-sm font-bold text-green-700">
                   {trainingMetrics[trainingMetrics.length - 1]?.train_ber?.toFixed(2) || 'N/A'}%
                 </div>
               </div>
               <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                <div className="text-xs text-yellow-600">验证BER</div>
+                <div className="text-xs text-yellow-600">验证BER(%)</div>
                 <div className="text-sm font-bold text-yellow-700">
                   {trainingMetrics[trainingMetrics.length - 1]?.val_ber?.toFixed(2) || 'N/A'}%
                 </div>
@@ -1072,70 +1072,7 @@ export default function MilvusPage() {
           </div>
         )}
 
-        {/* 训练结果 - 独立显示，不受modelExists条件限制 */}
-        {trainingResult && (
-          <div className="p-6 rounded-xl border bg-green-50 border-green-200">
-            <div className="flex items-center mb-4">
-              <div className="w-4 h-4 rounded-full mr-3 bg-green-500"></div>
-              <span className="font-semibold text-green-800 text-lg">训练完成</span>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div className="bg-white p-3 rounded-lg border border-green-200">
-                <div className="text-sm text-gray-600">最佳BER</div>
-                <div className="text-lg font-bold text-green-700">
-                  {trainingResult.best_ber ? `${(trainingResult.best_ber * 100).toFixed(3)}%` : 'N/A'}
-                </div>
-              </div>
-              <div className="bg-white p-3 rounded-lg border border-green-200">
-                <div className="text-sm text-gray-600">性能等级</div>
-                <div className="text-lg font-bold text-green-700">
-                  {trainingResult.performance_level || 'N/A'}
-                </div>
-              </div>
-            </div>
-            
-            {trainingResult.final_metrics && (
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="bg-white p-3 rounded-lg border border-green-200">
-                  <div className="text-sm text-gray-600">最终训练损失</div>
-                  <div className="text-lg font-bold text-blue-700">
-                    {trainingResult.final_metrics.train_loss?.toFixed(4) || 'N/A'}
-                  </div>
-                </div>
-                <div className="bg-white p-3 rounded-lg border border-green-200">
-                  <div className="text-sm text-gray-600">最终验证损失</div>
-                  <div className="text-lg font-bold text-blue-700">
-                    {trainingResult.final_metrics.val_loss?.toFixed(4) || 'N/A'}
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {trainingResult.train_params && (
-              <div className="bg-white p-3 rounded-lg border border-green-200">
-                <div className="text-sm text-gray-600 mb-2">训练参数</div>
-                <div className="text-sm text-gray-700">
-                  Epochs: {trainingResult.train_params.epochs} | 
-                  LR: {trainingResult.train_params.learning_rate} | 
-                  Batch: {trainingResult.train_params.batch_size} | 
-                  Val Ratio: {trainingResult.train_params.val_ratio}
-                </div>
-              </div>
-            )}
-            
-            {trainingResult.suggestions && trainingResult.suggestions.length > 0 && (
-              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <div className="text-sm font-medium text-yellow-800 mb-2">优化建议</div>
-                <ul className="text-sm text-yellow-700 space-y-1">
-                  {trainingResult.suggestions.map((suggestion, index) => (
-                    <li key={index}>• {suggestion}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
+
       </div>
     </ModernCard>
   );
