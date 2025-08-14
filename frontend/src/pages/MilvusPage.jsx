@@ -252,10 +252,10 @@ export default function MilvusPage() {
   
   // 训练参数
   const [trainingParams, setTrainingParams] = useState({
-    epochs: 50,
-    learningRate: 0.001,
-    batchSize: 32,
-    valRatio: 0.2
+    epochs: 100,
+    learning_rate: 0.003,
+    batch_size: 8196,
+    val_ratio: 0.15
   });
   
   // 水印嵌入操作
@@ -385,12 +385,14 @@ export default function MilvusPage() {
     
     try {
       setIsTraining(true);
+      setTrainingProgress(0);
+      
       const dbParams = {
         host: connectionData.host,
         port: connectionData.port
       };
       
-      const result = await trainMilvusModel(
+      const response = await trainMilvusModel(
         dbParams,
         selectedCollection,
         selectedVectorField,
@@ -398,44 +400,56 @@ export default function MilvusPage() {
         trainingParams
       );
       
-      if (result.success) {
-        setModelExists(true);
-        setTrainingResult(result);
-        showToast('模型训练完成！', 'success');
+      if (response.task_id) {
+        showToast('模型训练已开始', 'success');
+        
+        // 轮询训练状态
+        const pollTrainingStatus = async () => {
+          try {
+            const status = await getTrainingStatus(response.task_id);
+            
+            if (status.progress !== undefined) {
+              setTrainingProgress(status.progress);
+            }
+            
+            if (status.status === 'completed') {
+              setIsTraining(false);
+              setTrainingProgress(100);
+              setModelExists(true);
+              setTrainingResult(status);
+              
+              // 显示详细的训练结果
+              const metrics = status.final_metrics || {};
+              const performanceMsg = `训练完成！\n最佳BER: ${(status.best_ber * 100).toFixed(2)}%\n性能等级: ${status.performance_level || 'N/A'}\n最终训练损失: ${metrics.train_loss?.toFixed(4) || 'N/A'}\n最终验证损失: ${metrics.val_loss?.toFixed(4) || 'N/A'}`;
+              showToast(performanceMsg, 'success');
+            } else if (status.status === 'failed') {
+              setIsTraining(false);
+              showToast(`训练失败: ${status.error || '未知错误'}`, 'error');
+            } else if (status.status === 'running' || status.status === 'starting') {
+              // 继续轮询
+              setTimeout(pollTrainingStatus, 2000); // 每2秒检查一次
+            }
+          } catch (error) {
+            console.error('获取训练状态失败:', error);
+            // 如果获取状态失败，继续尝试
+            setTimeout(pollTrainingStatus, 3000);
+          }
+        };
+        
+        // 开始轮询
+        setTimeout(pollTrainingStatus, 1000); // 1秒后开始第一次检查
       } else {
-        showToast(`训练失败: ${result.message}`, 'error');
+        setIsTraining(false);
+        showToast(`训练失败: ${response.message}`, 'error');
       }
     } catch (error) {
-      showToast(`训练错误: ${error.message}`, 'error');
-    } finally {
       setIsTraining(false);
+      showToast(`训练错误: ${error.message}`, 'error');
     }
   };
 
   // 轮询训练状态
-  const pollTrainingStatus = async (taskId) => {
-    const interval = setInterval(async () => {
-      try {
-        const status = await getTrainingStatus(taskId);
-        setTrainingProgress(status.progress || 0);
-        
-        if (status.status === 'completed') {
-          setIsTraining(false);
-          setModelExists(true);
-          setTrainingResult(status);
-          showToast('模型训练完成！', 'success');
-          clearInterval(interval);
-        } else if (status.status === 'failed') {
-          setIsTraining(false);
-          showToast(`训练失败：${status.error}`, 'error');
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error('获取训练状态失败:', err);
-        clearInterval(interval);
-      }
-    }, 2000);
-  };
+
 
   // 获取集合列表
   useEffect(() => {
@@ -498,8 +512,12 @@ export default function MilvusPage() {
 
   // 嵌入水印
   const handleEmbedWatermark = async () => {
-    if (!watermarkData.message || !watermarkData.encryptionKey || !selectedPrimaryKey) {
-      showToast('请填写水印信息、加密密钥，并选择主键列', 'error');
+    if (!watermarkData.message || watermarkData.message.length !== 16) {
+      showToast('请输入16个字符的水印信息', 'error');
+      return;
+    }
+    if (!watermarkData.encryptionKey || !selectedPrimaryKey) {
+      showToast('请填写加密密钥，并选择主键列', 'error');
       return;
     }
     
@@ -883,13 +901,65 @@ export default function MilvusPage() {
 
         {/* 训练结果 */}
         {trainingResult && (
-          <div className="p-4 rounded-xl border bg-green-50 border-green-200 text-green-800">
-            <div className="flex items-center">
-              <div className="w-3 h-3 rounded-full mr-3 bg-green-500"></div>
-              <span className="font-medium">训练完成</span>
+          <div className="p-6 rounded-xl border bg-green-50 border-green-200">
+            <div className="flex items-center mb-4">
+              <div className="w-4 h-4 rounded-full mr-3 bg-green-500"></div>
+              <span className="font-semibold text-green-800 text-lg">训练完成</span>
             </div>
-            {trainingResult.message && (
-              <p className="mt-2 text-sm">{trainingResult.message}</p>
+            
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div className="bg-white p-3 rounded-lg border border-green-200">
+                <div className="text-sm text-gray-600">最佳BER</div>
+                <div className="text-lg font-bold text-green-700">
+                  {trainingResult.best_ber ? `${(trainingResult.best_ber * 100).toFixed(3)}%` : 'N/A'}
+                </div>
+              </div>
+              <div className="bg-white p-3 rounded-lg border border-green-200">
+                <div className="text-sm text-gray-600">性能等级</div>
+                <div className="text-lg font-bold text-green-700">
+                  {trainingResult.performance_level || 'N/A'}
+                </div>
+              </div>
+            </div>
+            
+            {trainingResult.final_metrics && (
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="bg-white p-3 rounded-lg border border-green-200">
+                  <div className="text-sm text-gray-600">最终训练损失</div>
+                  <div className="text-lg font-bold text-blue-700">
+                    {trainingResult.final_metrics.train_loss?.toFixed(4) || 'N/A'}
+                  </div>
+                </div>
+                <div className="bg-white p-3 rounded-lg border border-green-200">
+                  <div className="text-sm text-gray-600">最终验证损失</div>
+                  <div className="text-lg font-bold text-blue-700">
+                    {trainingResult.final_metrics.val_loss?.toFixed(4) || 'N/A'}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {trainingResult.train_params && (
+              <div className="bg-white p-3 rounded-lg border border-green-200">
+                <div className="text-sm text-gray-600 mb-2">训练参数</div>
+                <div className="text-sm text-gray-700">
+                  Epochs: {trainingResult.train_params.epochs} | 
+                  LR: {trainingResult.train_params.learning_rate} | 
+                  Batch: {trainingResult.train_params.batch_size} | 
+                  Val Ratio: {trainingResult.train_params.val_ratio}
+                </div>
+              </div>
+            )}
+            
+            {trainingResult.suggestions && trainingResult.suggestions.length > 0 && (
+              <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="text-sm font-medium text-yellow-800 mb-2">优化建议</div>
+                <ul className="text-sm text-yellow-700 space-y-1">
+                  {trainingResult.suggestions.map((suggestion, index) => (
+                    <li key={index}>• {suggestion}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         )}
@@ -943,12 +1013,43 @@ export default function MilvusPage() {
 
       <ModernCard title="水印嵌入" subtitle="在向量数据中嵌入水印信息" className="border-l-4 border-l-blue-500">
         <div className="space-y-4">
-          <ModernInput
-            label="水印信息"
-            value={watermarkData.message}
-            onChange={(e) => setWatermarkData(prev => ({ ...prev, message: e.target.value }))}
-            placeholder="输入要嵌入的水印信息"
-          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              水印信息 <span className="text-red-500">*</span>
+              <span className="text-xs text-gray-500 ml-2">(限制16个字符)</span>
+            </label>
+            <input
+              type="text"
+              value={watermarkData.message}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value.length <= 16) {
+                  setWatermarkData(prev => ({ ...prev, message: value }));
+                }
+              }}
+              maxLength={16}
+              className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 ${
+                watermarkData.message.length === 16 ? 'border-green-300 bg-green-50' : 
+                watermarkData.message.length > 12 ? 'border-yellow-300 bg-yellow-50' : 
+                'border-gray-300'
+              }`}
+              placeholder="输入要嵌入的水印信息（16字符）"
+            />
+            <div className="flex justify-between items-center mt-1">
+              <div className="text-xs text-gray-500">
+                {watermarkData.message.length === 0 && '请输入16个字符的水印信息'}
+                {watermarkData.message.length > 0 && watermarkData.message.length < 16 && '还需要输入更多字符'}
+                {watermarkData.message.length === 16 && '✓ 字符数量正确'}
+              </div>
+              <div className={`text-xs font-medium ${
+                watermarkData.message.length === 16 ? 'text-green-600' : 
+                watermarkData.message.length > 12 ? 'text-yellow-600' : 
+                'text-gray-500'
+              }`}>
+                {watermarkData.message.length}/16
+              </div>
+            </div>
+          </div>
           
           {/* 密钥输入区域 */}
           <div>
