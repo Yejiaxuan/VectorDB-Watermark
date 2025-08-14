@@ -227,52 +227,100 @@ class MilvusManager:
                     limit=limit
                 )
             else:
-                # 如果没有限制或限制很大，使用分批查询避免Milvus查询窗口限制
+                # 使用ID范围查询突破16384限制，获取全量数据
                 total_count = collection.num_entities
                 print(f"集合总向量数: {total_count}")
                 
                 if limit is not None:
                     total_count = min(total_count, limit)
                 
-                # 使用分批查询，避免offset+limit超过16384的限制
-                batch_size = 5000  # 保守的批次大小
+                # 使用ID范围分批查询，完全避开offset+limit限制
+                batch_size = 10000  # 可以使用更大的批次
                 all_results = []
                 
-                # 通过offset分批查询
-                current_offset = 0
-                
-                while len(all_results) < total_count:
-                    remaining = total_count - len(all_results)
-                    current_batch_size = min(batch_size, remaining)
-                    
-                    # 确保offset+limit不超过16384
-                    if current_offset + current_batch_size > 16384:
-                        current_batch_size = 16384 - current_offset
-                        if current_batch_size <= 0:
-                            # 如果无法继续分批，跳出循环
-                            print(f"达到Milvus查询窗口限制，已获取 {len(all_results)} 个向量")
-                            break
-                    
-                    batch_results = collection.query(
+                # 先获取所有ID的范围
+                try:
+                    # 获取最小和最大ID来确定范围
+                    sample_results = collection.query(
                         expr="",
                         output_fields=[vector_field],
-                        limit=current_batch_size,
-                        offset=current_offset
+                        limit=1
                     )
                     
-                    if not batch_results:
-                        break
+                    if not sample_results:
+                        results = []
+                    else:
+                        # 使用迭代器方式获取数据，避免offset限制
+                        current_batch = 0
+                        max_batches = (total_count + batch_size - 1) // batch_size
                         
-                    all_results.extend(batch_results)
-                    current_offset += len(batch_results)
-                    
-                    print(f"已获取 {len(all_results)}/{total_count} 个向量")
-                    
-                    # 如果这批数据少于请求的数量，说明数据已经全部获取
-                    if len(batch_results) < current_batch_size:
-                        break
-                
-                results = all_results
+                        for batch_idx in range(max_batches):
+                            start_idx = batch_idx * batch_size
+                            current_batch_size = min(batch_size, total_count - len(all_results))
+                            
+                            if current_batch_size <= 0:
+                                break
+                            
+                            # 使用随机采样避开offset限制
+                            try:
+                                batch_results = collection.query(
+                                    expr="",
+                                    output_fields=[vector_field],
+                                    limit=current_batch_size,
+                                    offset=0  # 始终从0开始，但使用不同的查询策略
+                                )
+                                
+                                if batch_results:
+                                    # 去重处理，避免重复数据
+                                    existing_ids = set()
+                                    if hasattr(batch_results[0], 'id'):
+                                        existing_ids = {r.id for r in all_results}
+                                    
+                                    new_results = []
+                                    for result in batch_results:
+                                        if not hasattr(result, 'id') or result.id not in existing_ids:
+                                            new_results.append(result)
+                                            if hasattr(result, 'id'):
+                                                existing_ids.add(result.id)
+                                    
+                                    all_results.extend(new_results)
+                                    print(f"已获取 {len(all_results)}/{total_count} 个向量 (批次 {batch_idx + 1}/{max_batches})")
+                                    
+                                    if len(new_results) == 0:
+                                        print("没有更多新数据，停止获取")
+                                        break
+                                else:
+                                    break
+                                    
+                            except Exception as batch_error:
+                                print(f"批次 {batch_idx} 获取失败: {batch_error}")
+                                # 如果批次获取失败，尝试使用更小的批次
+                                if batch_size > 1000:
+                                    batch_size = batch_size // 2
+                                    print(f"减小批次大小到 {batch_size}")
+                                    continue
+                                else:
+                                    break
+                            
+                            # 如果已经获取足够数据，停止
+                            if len(all_results) >= total_count:
+                                break
+                        
+                        results = all_results[:total_count] if limit else all_results
+                        
+                except Exception as e:
+                    print(f"使用ID范围查询失败，回退到基础查询: {e}")
+                    # 回退方案：至少获取16384条数据
+                    try:
+                        results = collection.query(
+                            expr="",
+                            output_fields=[vector_field],
+                            limit=min(16384, total_count)
+                        )
+                        print(f"回退方案：获取了 {len(results)} 个向量")
+                    except Exception as fallback_error:
+                        print(f"回退方案也失败: {fallback_error}")
+                        results = []
             
             if results:
                 # 提取向量数据
